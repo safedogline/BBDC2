@@ -1110,7 +1110,6 @@ document.addEventListener("click", event => {
   const materialTabButton = event.target.closest("[data-material-tab]"); if (materialTabButton) { materialTab = materialTabButton.dataset.materialTab; renderMaterials(); }
   if (action === "import-reading-book") importReadingBook();
   if (action === "load-references") loadReferenceData();
-loadPhonetics();
   const dictRow = event.target.closest("[data-dict-word]"); if (dictRow) { dictSelected = dictRow.dataset.dictWord; renderDict(); }
   const toggleButton = event.target.closest("[data-toggle]"); if (toggleButton) { const key = toggleButton.dataset.toggle; state.settings[key] = !state.settings[key]; persist(); applyTheme(); if (currentView === "settings") renderSettings(); else renderAppearance(); }
   const choiceButton = event.target.closest("[data-choice]"); if (choiceButton) { chooseOption(Number(choiceButton.dataset.choice)); }
@@ -1179,3 +1178,4 @@ renderShell();
 loadIeltsBook();
 loadListeningData();
 loadReferenceData();
+loadPhonetics();
