@@ -526,27 +526,23 @@ const MORPHEME_SUFFIXES = [["ability", "能力"], ["ibility", "能力"], ["izati
 const MEANING_STOPWORDS = ["大量", "足够", "状态", "行为", "动作", "情况", "方面", "东西", "表示", "进行", "某种", "一个", "一种", "的人", "的事", "使", "或", "与", "和", "及", "等", "地", "得"];
 function wordBase(word) { return (word.word || "").split(" / ")[0].split(" ")[0]; }
 function posOf(word) { return (word.partOfSpeech || "").toLowerCase(); }
+function completeExample(example) {
+  const text = String(example || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length < 20 || /\.\.\.|…/.test(text)) return "";
+  if (!/^["“‘'A-Z]/.test(text) || /[,;:，；：]$/.test(text)) return "";
+  if (text.split(/\s+/).filter(Boolean).length < 5) return "";
+  const brackets = [["(", ")"], ["[", "]"], ["（", "）"]];
+  if (brackets.some(([left, right]) => (text.match(new RegExp(`\\${left}`, "g")) || []).length !== (text.match(new RegExp(`\\${right}`, "g")) || []).length)) return "";
+  return text;
+}
 function meaningTokens(meaning) {
   return String(meaning || "").toLowerCase().replace(/^[a-z]+\.?\s*/, "").split(/[；;，,、/（）()\s]+/).map(token => token.replace(/[的地得]/g, "")).filter(token => token.length >= 2 && !MEANING_STOPWORDS.includes(token));
 }
 function collocationsOf(word) {
   const result = [];
-  const base = wordBase(word).toLowerCase();
-  const example = String(word.example || "").replace(/[.!?]$/, "");
-  if (example) {
-    const tokens = example.split(/\s+/);
-    const index = tokens.findIndex(token => token.toLowerCase().replace(/[^a-z-]/g, "") === base);
-    if (index >= 0) {
-      let start = index;
-      const isLead = token => /^(in|on|at|of|with|to|for|from|by|the|a|an|this|that|these|those|his|her|their|its)$/i.test(token || "");
-      if (isLead(tokens[start - 1])) start -= 1;
-      if (start === index - 1 && isLead(tokens[start - 1])) start -= 1;
-      const phrase = tokens.slice(start, Math.min(tokens.length, index + 3)).join(" ").replace(/^[^A-Za-z]+/, "").replace(/[^A-Za-z.]+$/, "");
-      if (phrase) result.push({ text: phrase, kind: "例句搭配" });
-    }
-  }
+  const example = completeExample(word.example);
+  if (example) result.push({ text: example, kind: "例句" });
   (word.groupWords || []).slice(0, 5).forEach(item => { if (item.toLowerCase() !== word.word.toLowerCase()) result.push({ text: item, kind: "同组词" }); });
-  if (word.extra) result.push({ text: word.extra, kind: "拓展助记" });
   return result;
 }
 function pluralOf(base) {
