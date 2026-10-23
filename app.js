@@ -1026,6 +1026,8 @@ function toggleCheckin() {
 }
 
 document.addEventListener("click", event => {
+  const scopeField = event.target.closest("[data-scope]");
+  if (scopeField && !event.target.closest("[data-step]")) return;
   if (event.target.closest("#sidebar-toggle")) {
     sidebarCollapsed = !sidebarCollapsed;
     localStorage.setItem("cixu-sidebar", sidebarCollapsed ? "1" : "0");
@@ -1148,6 +1150,7 @@ document.addEventListener("change", event => {
       updateScopeWordPreview(scope);
     }
     toast("新词范围已保存");
+    event.stopPropagation();
     return;
   }
   const select = event.target.closest("[data-setting]");
