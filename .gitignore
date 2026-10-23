@@ -6,7 +6,10 @@ IELTS词汇.exe.WebView2/
 ielts/public/vocabulary/audio/
 
 # Compiled binaries / build output
+# All build output is ignored, but the release build shipped in the repo root
+# is intentionally tracked so users can run the app without a Rust toolchain.
 *.exe
+!IELTS词汇.exe
 desktop-rs/target/
 
 # Android device debug dumps (large, machine-specific)
