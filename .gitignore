@@ -1,0 +1,18 @@
+# Windows WebView2 runtime cache — generated at runtime, never commit
+IELTS词汇.exe.WebView2/
+
+# Pronunciation audio (472MB, 3718 files) — local personal study material,
+# not licensed for redistribution. See SOURCES.md. Supply your own locally.
+ielts/public/vocabulary/audio/
+
+# Compiled binaries / build output
+*.exe
+desktop-rs/target/
+
+# Android device debug dumps (large, machine-specific)
+app-session-logcat*.txt
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*~
