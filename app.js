@@ -79,7 +79,8 @@ let databaseSaveTimer;
 
 function loadState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const saved = JSON.parse(raw);
     if (saved && Array.isArray(saved.books) && saved.reviews) {
       saved.records = saved.records || {};
       saved.daily = saved.daily || {};
@@ -95,8 +96,19 @@ function loadState() {
       if (saved.session?.queue?.length) session = saved.session;
       return saved;
     }
-  } catch (error) { console.warn("Could not read saved study data", error); }
+    if (raw != null) backupDamagedState(raw);
+  } catch (error) {
+    console.warn("Could not read saved study data", error);
+    const damaged = localStorage.getItem(STORAGE_KEY);
+    if (damaged) backupDamagedState(damaged);
+  }
   return { books: [sampleBook], records: {}, reviews: {}, daily: {}, notes: {}, favoriteWords: [], favoriteSentences: [], likes: {}, known: {}, checkins: [], listening: { index: 0, done: {} }, activeBookId: sampleBook.id, settings: { ...DEFAULT_SETTINGS } };
+}
+function backupDamagedState(raw) {
+  try {
+    localStorage.setItem("cixu-desktop-backup", raw);
+    setTimeout(() => toast("学习数据读取失败，原始数据已备份到本地；请勿清除浏览器数据"), 0);
+  } catch (error) { console.warn("Could not back up damaged study data", error); }
 }
 async function loadIeltsBook(attempt = 0) {
   try {
@@ -236,7 +248,7 @@ function parseImport(text, fileName) {
     const parsed = JSON.parse(text);
     const source = Array.isArray(parsed) ? parsed : parsed.words;
     if (!Array.isArray(source)) throw new Error("JSON 需要是词条数组，或含 words 数组的对象");
-    return { name: parsed.name || fileName.replace(/\.[^.]+$/, ""), words: source.map(normalizeWord) };
+    return { name: parsed.name || fileName.replace(/\.[^.]+$/, ""), words: source.map(item => item && typeof item === "object" && !Array.isArray(item) ? normalizeWord(item) : null) };
   }
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line.trim());
   if (!lines.length) throw new Error("文件中没有词条");
@@ -250,6 +262,7 @@ function parseImport(text, fileName) {
   return { name: fileName.replace(/\.[^.]+$/, ""), words: records.map(normalizeWord) };
 }
 function normalizeWord(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
   const get = (...keys) => { for (const key of keys) if (item[key] != null && String(item[key]).trim()) return String(item[key]).trim(); return ""; };
   return { word: get("word", "term", "headword", "单词", "词条", "英文"), meaning: get("meaning", "definition", "translation", "释义", "中文", "意思"), example: get("example", "sentence", "例句"), translation: get("exampleTranslation", "example_translation", "translationExample", "例句翻译"), phonetic: get("phonetic", "pronunciation", "音标"), audio: get("audio", "audioUrl", "audio_url", "发音"), category: get("category", "group", "unit", "分类", "单元") };
 }
@@ -427,6 +440,7 @@ function prepareWord() {
   session.materialPage = 0;
   session.spelling = false;
   session.answerGrade = null;
+  session.answerSource = null;
   session.choiceInspect = null;
   session.noteDraft = state.notes[recordKey(bookId, word)] || "";
   session.wordStartedAt = Date.now();
@@ -477,6 +491,7 @@ function buildChoice(word, bookId) {
   const variants = word.variants?.length > 1 ? word.variants : [];
   const revealed = session.answered;
   const listening = state.settings.listeningQuiz && session.choice && !revealed;
+  const spellingResult = revealed && session.answerSource === "spelling";
   const tabs = tabOrder();
   const panels = revealed && !session.choice ? `<div class="study-tabs">${tabs.map(tab => `<button class="study-tab ${activeStudyTab === tab ? "selected" : ""}" data-study-tab="${tab}">${TAB_LABELS[tab]}</button>`).join("")}</div>${renderTabPanel(word, activeStudyTab)}${session.material ? renderMaterial(word) : ""}` : "";
   const actions = session.spelling
@@ -495,9 +510,9 @@ function buildChoice(word, bookId) {
   ${!session.spelling && !listening && variants.length ? `<div class="word-variants">${variants.map(variant => `<span>${escapeHtml(variant)}</span>`).join("")}</div>` : ""}
   ${session.spelling ? `<div class="word-meaning spell-hint">${escapeHtml(meaningOf(word))}</div>` : ""}
   ${session.choice && !revealed ? `<div class="choice-prompt">${listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>` : ""}
-  ${session.choice ? renderChoice(word) : ""}
-  ${!session.choice && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
-  ${session.choice && revealed && session.answerGrade === "again" ? `<div class="choice-explain">${state.settings.confuseAnalyze ? "红色选项是刚才选错或容易混淆的释义，蓝色为正确释义。" : "已显示正确释义。"}</div>` : ""}
+   ${session.choice && !session.spelling && !spellingResult ? renderChoice(word) : ""}
+   ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
+  ${session.choice && revealed && session.answerGrade === "again" && !spellingResult ? `<div class="choice-explain">${state.settings.confuseAnalyze ? "红色选项是刚才选错或容易混淆的释义，蓝色为正确释义。" : "已显示正确释义。"}</div>` : ""}
   ${panels}
   ${revealed && !session.choice ? `<div class="learn-audio-row"><button class="word-audio" data-action="material">学习材料</button></div>` : ""}
   <div class="answer-actions">${actions}</div>
@@ -699,6 +714,7 @@ function markAnswer(grade) {
   if (grade === "again") record.wrong++; else record.correct++;
   session.answered = true;
   session.answerGrade = grade;
+  session.answerSource = session.spelling ? "spelling" : session.choice ? "choice" : "self";
 }
 function gradeWord(grade) {
   if (!session || session.answered) return;
@@ -1012,10 +1028,14 @@ async function importFile(file) {
     }
     const imported = parseImport(text, file.name);
     const unique = new Map();
-    imported.words.filter(word => word.word).forEach(word => unique.set(word.word.toLowerCase(), word));
-    if (!unique.size) throw new Error("没有找到有效的单词列；请检查文件字段");
+    let skipped = 0;
+    imported.words.forEach(word => {
+      if (!word?.word || !word.meaning) { skipped++; return; }
+      unique.set(word.word.toLowerCase(), word);
+    });
+    if (!unique.size) throw new Error("没有有效词条；每个词条必须包含单词和中文释义");
     const id = `book-${Date.now().toString(36)}`;
-    state.books.push({ id, name: imported.name || "导入词书", category: "导入", createdAt: Date.now(), words: [...unique.values()] }); currentBookId = id; persist(); currentView = "home"; renderShell(); toast(`已导入 ${unique.size} 个词条`);
+    state.books.push({ id, name: imported.name || "导入词书", category: "导入", createdAt: Date.now(), words: [...unique.values()] }); currentBookId = id; persist(); currentView = "home"; renderShell(); toast(`已导入 ${unique.size} 个词条${skipped ? `，跳过 ${skipped} 个无效词条` : ""}`);
   } catch (error) { showModal("导入失败", error.message || "无法读取该文件"); }
 }
 function showModal(title, message, confirmLabel = "关闭", onConfirm) {
@@ -1121,6 +1141,7 @@ document.addEventListener("click", event => {
       const value = input.value.trim().toLowerCase();
       session.spelling = false;
       markAnswer(value === target ? "known" : "again");
+      session.answerSource = "spelling";
       session.revealed = true;
       renderSession();
       toast(value === target ? "拼写正确" : `拼写错误：${target}`);
