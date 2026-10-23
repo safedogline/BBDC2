@@ -339,8 +339,8 @@ body[data-theme="light"] .answer-button.again{color:#7c2b2b}
 /* ---------- settings / appearance ---------- */
 .settings-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px 18px;margin-bottom:14px}
 .scope-panel{margin:14px 0}
-.scope-controls{display:flex;align-items:end;gap:14px;flex-wrap:wrap}
-.scope-controls label{display:grid;gap:6px;color:var(--muted);font-size:11px;min-width:180px}
+.scope-controls{display:grid;grid-template-columns:minmax(280px,1fr) minmax(220px,.8fr) auto;align-items:start;gap:14px}
+.scope-controls label{display:grid;gap:6px;color:var(--muted);font-size:11px;min-width:0}
 .number-stepper{width:180px;height:36px;display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);overflow:hidden}
 .number-stepper:focus-within{border-color:var(--gold)}
 .number-stepper input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text);padding:0 10px;font-size:12px;appearance:textfield;-moz-appearance:textfield}
@@ -350,7 +350,7 @@ body[data-theme="light"] .answer-button.again{color:#7c2b2b}
 .stepper-buttons button{width:30px;border:0;background:transparent;color:var(--muted);font-size:12px;line-height:1}
 .stepper-buttons button:hover{background:var(--surface);color:var(--gold-2)}
 .scope-select{width:220px;height:36px;border-radius:8px;padding:0 30px 0 10px;cursor:pointer}
-.scope-count{padding:0 0 10px;color:var(--dim);font-size:11px}
+.scope-count{align-self:end;padding:0 0 10px;color:var(--dim);font-size:11px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
 .settings-row:last-child{border-bottom:0}
 .settings-row strong{display:block;font-size:12.5px;font-weight:600}
@@ -512,6 +512,8 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   .theme-preview{height:72px}
   .filters{flex-wrap:wrap}
   .search-input{width:100%;flex:auto}
+  .scope-controls{grid-template-columns:1fr 1fr}
+  .scope-count{grid-column:1 / -1;justify-self:start}
   .book-management-row{grid-template-columns:1fr 64px;row-gap:4px}
   .brand-row{justify-content:space-between;margin:0 0 10px 4px}
   .sidebar-toggle{display:none}

@@ -268,7 +268,7 @@ function renderHome() {
     <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">今天累计</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
     <div class="section-heading"><h2>当前词书</h2><button class="quiet-link" data-view="words">管理词书 →</button></div>
     <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="start-new" ${fresh === 0 && !session ? "disabled" : ""}>${session?.mode === "new" ? "继续学习" : "开始学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
-    <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="number" min="1" max="${book.words.length}" value="${Math.min(settings.vocabularyStart || 1, book.words.length)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="-1" aria-label="减少起始词">−</button><button type="button" data-step="1" aria-label="增加起始词">+</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(book.words[Math.min(settings.vocabularyStart || 1, book.words.length) - 1]?.word || "超出词书范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">共 ${book.words.length} 个词条</span></div></section>
+    <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(book.words.length).length}" value="${Math.min(settings.vocabularyStart || 1, book.words.length)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="-1" aria-label="减少起始词">−</button><button type="button" data-step="1" aria-label="增加起始词">+</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(book.words[Math.min(settings.vocabularyStart || 1, book.words.length) - 1]?.word || "超出词书范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">共 ${book.words.length} 个词条</span></div></section>
     <div class="study-layout"><section class="study-panel"><div class="study-panel-header"><span>签到日历</span><span class="pill">连续 ${streakDays()} 天</span></div>${renderCalendar()}<button class="secondary-button full-button" data-action="checkin">${state.checkins.includes(todayKey()) ? "今日已签到" : "今日签到"}</button></section><section class="study-panel"><div class="study-panel-header"><span>快捷入口</span></div><div class="quick-actions"><button class="quick-action" data-view="listen"><span class="quick-action-icon">♫</span><span><strong>随身听</strong><small>${book.words.length} 个词条</small></span></button><button class="quick-action" data-view="dict"><span class="quick-action-icon">⌕</span><span><strong>词典</strong><small>查词与例句</small></span></button><button class="quick-action" data-view="sentences"><span class="quick-action-icon">¶</span><span><strong>句库</strong><small>${state.favoriteSentences.length} 条例句</small></span></button><button class="quick-action" data-action="open-favorites"><span class="quick-action-icon">☆</span><span><strong>生词本</strong><small>${state.favoriteWords.length} 个收藏</small></span></button><button class="quick-action" id="backup-button"><span class="quick-action-icon">⇩</span><span><strong>导出备份</strong><small>词书与进度 JSON</small></span></button></div></section></div>
     <section class="recent-section"><div class="section-heading"><h2>最近学习</h2><button class="quiet-link" data-view="words">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>单词</th><th>释义</th><th>状态</th></tr></thead><tbody>${recentRows(book)}</tbody></table></div></section>`;
 }
@@ -1039,7 +1039,8 @@ document.addEventListener("click", event => {
   if (event.target.closest("[data-step]")) {
     const input = document.querySelector('[data-scope="vocabularyStart"]');
     const step = Number(event.target.closest("[data-step]").dataset.step);
-    input.value = Math.max(1, Math.min(Number(input.max), (Number(input.value) || 1) + step));
+    const max = currentBook()?.words.length || 1;
+    input.value = Math.max(1, Math.min(max, (Number(input.value) || 1) + step));
     updateScopeWordPreview(input);
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -1129,7 +1130,9 @@ document.addEventListener("input", event => {
 function updateScopeWordPreview(input) {
   const book = currentBook();
   if (!book) return;
-  const index = Math.max(1, Math.min(book.words.length, Number(input.value) || 1)) - 1;
+  const value = String(input.value).replace(/\D/g, "");
+  if (input.value !== value) input.value = value;
+  const index = Math.max(1, Math.min(book.words.length, Number(value) || 1)) - 1;
   const word = book.words[index];
   const preview = document.getElementById("scope-word-preview");
   if (preview) preview.textContent = word ? `${word.word}${word.category ? ` · ${word.category}` : ""}` : "超出词书范围";
@@ -1140,7 +1143,10 @@ document.addEventListener("change", event => {
     const key = scope.dataset.scope;
     state.settings[key] = key === "vocabularyStart" ? Math.max(1, Math.min(currentBook()?.words.length || 1, Number(scope.value) || 1)) : scope.value;
     persist();
-    if (key === "vocabularyStart") scope.value = state.settings[key];
+    if (key === "vocabularyStart") {
+      scope.value = state.settings[key];
+      updateScopeWordPreview(scope);
+    }
     toast("新词范围已保存");
     return;
   }
