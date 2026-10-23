@@ -1,4 +1,5 @@
 ﻿const STORAGE_KEY = "cixu-desktop-v1";
+const STATE_API = "./__ielts_state";
 const DAY = 86400000;
 const IELTS_BOOK_ID = "ielts-zhenjing-local";
 const DEFAULT_SETTINGS = {
@@ -73,6 +74,8 @@ let materialTab = "writing";
 let materialsMessage = "";
 let phoneticsMap = {};
 let sidebarCollapsed = localStorage.getItem("cixu-sidebar") === "1";
+let databaseAvailable = false;
+let databaseSaveTimer;
 
 function loadState() {
   try {
@@ -117,6 +120,7 @@ async function loadIeltsBook(attempt = 0) {
     if (existingIndex < 0) state.books.unshift(book);
     else state.books[existingIndex] = book;
     if (!state.activeBookId || state.activeBookId === "starter-01") currentBookId = IELTS_BOOK_ID;
+    syncVocabularyStart(book);
     persist(); renderShell();
   } catch (error) {
     if (attempt < 1) { setTimeout(() => loadIeltsBook(attempt + 1), 1200); return; }
@@ -128,8 +132,44 @@ function persist() {
   state.activeBookId = currentBookId;
   if (session?.queue?.length) state.session = session;
   else delete state.session;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  const serialized = JSON.stringify(state);
+  try { localStorage.setItem(STORAGE_KEY, serialized); }
   catch (error) { toast("本地存储空间不足，请先导出备份"); }
+  if (databaseAvailable) {
+    clearTimeout(databaseSaveTimer);
+    databaseSaveTimer = setTimeout(() => fetch(STATE_API, { method: "PUT", headers: { "Content-Type": "application/json" }, body: serialized }).catch(() => { databaseAvailable = false; }), 80);
+  }
+}
+
+async function loadDatabaseState() {
+  try {
+    const response = await fetch(STATE_API, { cache: "no-store" });
+    if (!response.ok) return;
+    databaseAvailable = true;
+    if (response.status === 204) return;
+    const saved = await response.json();
+    if (!saved || !Array.isArray(saved.books) || !saved.reviews) return;
+    state = normalizeState(saved);
+    session = state.session?.queue?.length ? state.session : null;
+    currentBookId = state.activeBookId || state.books[0]?.id || null;
+    applyTheme();
+    renderShell();
+  } catch (error) { /* static browser hosting has no database API */ }
+}
+
+function normalizeState(saved) {
+  saved.records = saved.records || {};
+  saved.daily = saved.daily || {};
+  saved.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
+  saved.notes = saved.notes || {};
+  saved.favoriteWords = saved.favoriteWords || [];
+  saved.favoriteSentences = saved.favoriteSentences || [];
+  saved.likes = saved.likes || {};
+  saved.known = saved.known || {};
+  saved.checkins = saved.checkins || [];
+  saved.listening = saved.listening || { index: 0, done: {} };
+  saved.listening.done = saved.listening.done || {};
+  return saved;
 }
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -344,7 +384,10 @@ function startSession(mode) {
   else {
     const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
     const category = state.settings.vocabularyCategory || "all";
-    words = book.words.filter((word, index) => index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && getRecord(book.id, word).box === 0).slice(0, state.settings.groupSize || 20);
+    words = book.words.filter((word, index) => {
+      const record = getRecord(book.id, word);
+      return index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
+    }).slice(0, state.settings.groupSize || 20);
   }
   if (mode === "review" && !words.length) words = state.books.flatMap(source => dueWords(source.id).map(entry => ({ ...entry.word, _bookId: source.id }))).slice(0, state.settings.reviewChunk || 100);
   if (!words.length) { toast(mode === "review" ? "目前没有到期的复习词条" : "今天的新词已完成"); return; }
@@ -357,6 +400,17 @@ function startSession(mode) {
 }
 function createSession(mode, words, bookId, sourceBookId) {
   return { mode, bookId, sourceBookId, words, queue: words.map(word => ({ word, streak: 0, passes: 0 })), total: words.length, completed: 0, required: mode === "new" ? 3 : 1, answered: false, revealed: false, material: false, spelling: false, choice: null, answerGrade: null, noteDraft: "", startedAt: Date.now(), wordStartedAt: Date.now() };
+}
+function syncVocabularyStart(book) {
+  if (!book || book.id !== IELTS_BOOK_ID) return;
+  const category = state.settings.vocabularyCategory || "all";
+  const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
+  const next = book.words.findIndex((word, index) => {
+    const record = getRecord(book.id, word);
+    return index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
+  });
+  if (next >= 0) state.settings.vocabularyStart = next + 1;
+  else state.settings.vocabularyStart = book.words.length;
 }
 function currentSessionWord() { return session?.queue?.[0]?.word || null; }
 function prepareWord() {
@@ -373,6 +427,7 @@ function prepareWord() {
   session.materialPage = 0;
   session.spelling = false;
   session.answerGrade = null;
+  session.choiceInspect = null;
   session.noteDraft = state.notes[recordKey(bookId, word)] || "";
   session.wordStartedAt = Date.now();
   session.choice = record.box <= 1 ? buildChoice(word, bookId) : null;
@@ -461,8 +516,8 @@ function renderChoice() {
       if (option.correct) cls += " correct";
       else if (choice.selected === index) cls += " wrong";
     }
-    const showWord = locked && (option.correct || choice.selected === index);
-    return `<button class="${cls}" data-choice="${index}" ${locked ? "disabled" : ""}>${showWord && option.word ? `<span class="choice-word">${escapeHtml(option.word)}</span>` : ""}<span class="choice-meaning">${escapeHtml(option.meaning)}</span></button>`;
+    const showWord = locked && (option.correct || choice.selected === index || session.choiceInspect === index);
+    return `<button class="${cls}" data-choice="${index}"><span class="choice-meaning">${escapeHtml(option.meaning)}</span><span class="choice-word">${showWord && option.word ? escapeHtml(option.word) : ""}</span></button>`;
   }).join("")}</div>`;
 }
 const MORPHEME_PREFIXES = [["contra", "相反"], ["trans", "跨越；转变"], ["inter", "之间"], ["super", "在上；超过"], ["under", "在下；不足"], ["over", "过度；在上"], ["multi", "多"], ["micro", "微小"], ["macro", "宏大"], ["auto", "自己"], ["anti", "反对"], ["extra", "额外；超出"], ["pre", "在前；预先"], ["post", "在后"], ["sub", "在下；次于"], ["de", "否定；向下"], ["dis", "否定；分开"], ["con", "共同；加强"], ["com", "共同；加强"], ["ex", "向外；出"], ["in", "进入；否定"], ["im", "进入；否定"], ["re", "再；向后"], ["pro", "向前；支持"], ["per", "贯穿；彻底"], ["un", "否定"], ["non", "非"], ["mis", "错误"], ["co", "共同"]];
@@ -663,6 +718,12 @@ function chooseOption(index) {
   markAnswer(option.correct ? "known" : "again");
   renderSession();
 }
+function inspectChoice(index) {
+  if (!session?.choice || !session.answered) return;
+  if (!session.choice.options[index]) return;
+  session.choiceInspect = index;
+  renderSession();
+}
 function revealAnswer() {
   if (!session?.choice || session.answered) return;
   session.choice.selected = -2;
@@ -701,6 +762,7 @@ function continueWord() {
     const gap = grade === "again" ? Math.min(4, session.queue.length) : Math.min(3, session.queue.length);
     session.queue.splice(gap, 0, entry);
   }
+  if (session.mode === "new") syncVocabularyStart(state.books.find(book => book.id === session.sourceBookId));
   persist();
   if (!session.queue.length) {
     const mode = session.mode;
@@ -945,7 +1007,11 @@ async function importFile(file) {
       const parsed = JSON.parse(text);
       if (Array.isArray(parsed.books) && parsed.records && parsed.reviews) {
         state = { ...parsed, notes: parsed.notes || {}, favoriteWords: parsed.favoriteWords || [], favoriteSentences: parsed.favoriteSentences || [], likes: parsed.likes || {}, known: parsed.known || {}, checkins: parsed.checkins || [], settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) } };
-        currentBookId = state.activeBookId || state.books[0]?.id; persist(); applyTheme(); currentView = "home"; renderShell(); toast("已恢复词书与学习进度"); return;
+        session = state.session?.queue?.length ? state.session : null;
+        currentBookId = state.activeBookId || state.books[0]?.id;
+        const importedIelts = state.books.find(book => book.id === IELTS_BOOK_ID);
+        if (importedIelts) syncVocabularyStart(importedIelts);
+        persist(); applyTheme(); currentView = "home"; renderShell(); toast("已恢复词书与学习进度"); return;
       }
     }
     const imported = parseImport(text, file.name);
@@ -1112,7 +1178,7 @@ document.addEventListener("click", event => {
   if (action === "load-references") loadReferenceData();
   const dictRow = event.target.closest("[data-dict-word]"); if (dictRow) { dictSelected = dictRow.dataset.dictWord; renderDict(); }
   const toggleButton = event.target.closest("[data-toggle]"); if (toggleButton) { const key = toggleButton.dataset.toggle; state.settings[key] = !state.settings[key]; persist(); applyTheme(); if (currentView === "settings") renderSettings(); else renderAppearance(); }
-  const choiceButton = event.target.closest("[data-choice]"); if (choiceButton) { chooseOption(Number(choiceButton.dataset.choice)); }
+  const choiceButton = event.target.closest("[data-choice]"); if (choiceButton) { const index = Number(choiceButton.dataset.choice); if (session?.answered) inspectChoice(index); else chooseOption(index); }
   const studyTab = event.target.closest("[data-study-tab]")?.dataset.studyTab; if (studyTab) { activeStudyTab = studyTab; renderSession(); }
   if (event.target.closest("#backup-button") || event.target.closest("#books-export")) exportBackup();
   if (event.target.closest("#import-button") || event.target.closest("#words-import") || event.target.closest("#empty-import")) document.getElementById("file-input").click();
@@ -1175,7 +1241,9 @@ document.addEventListener("keydown", event => {
 applyTheme();
 applySidebar();
 renderShell();
-loadIeltsBook();
-loadListeningData();
-loadReferenceData();
-loadPhonetics();
+loadDatabaseState().then(() => {
+  loadIeltsBook();
+  loadListeningData();
+  loadReferenceData();
+  loadPhonetics();
+});

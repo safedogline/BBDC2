@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -14,6 +14,7 @@ use tao::event_loop::{ControlFlow, EventLoop};
 use tao::window::WindowBuilder;
 use tiny_http::{Header, Response, Server};
 use wry::{NewWindowResponse, WebViewBuilder};
+use rusqlite::{params, Connection};
 
 #[cfg(windows)]
 #[link(name = "user32")]
@@ -59,6 +60,31 @@ fn config_dir() -> Option<PathBuf> {
 
 fn bounds_path() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("window.json"))
+}
+
+fn database_path() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join("study.sqlite"))
+}
+
+fn open_database(path: &Path) -> rusqlite::Result<Connection> {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let connection = Connection::open(path)?;
+    connection.execute_batch("CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY CHECK (id = 1), state_json TEXT NOT NULL, updated_at INTEGER NOT NULL);")?;
+    Ok(connection)
+}
+
+fn load_database_state(path: &Path) -> Option<String> {
+    let connection = open_database(path).ok()?;
+    connection.query_row("SELECT state_json FROM app_state WHERE id = 1", [], |row| row.get(0)).ok()
+}
+
+fn save_database_state(path: &Path, state: &str) -> rusqlite::Result<()> {
+    let connection = open_database(path)?;
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|value| value.as_secs() as i64).unwrap_or(0);
+    connection.execute("INSERT INTO app_state (id, state_json, updated_at) VALUES (1, ?1, ?2) ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at", params![state, timestamp])?;
+    Ok(())
 }
 
 fn load_bounds() -> Option<Bounds> {
@@ -146,12 +172,12 @@ fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid header")
 }
 
-fn start_server(root: PathBuf) -> std::io::Result<u16> {
+fn start_server(root: PathBuf, database: Option<PathBuf>) -> std::io::Result<u16> {
     let mut last_error = String::from("no free local port");
     for port in 47800u16..47820 {
         match Server::http(("127.0.0.1", port)) {
             Ok(server) => {
-                serve_in_background(server, root);
+                serve_in_background(server, root, database);
                 return Ok(port);
             }
             Err(error) => last_error = error.to_string(),
@@ -160,10 +186,10 @@ fn start_server(root: PathBuf) -> std::io::Result<u16> {
     Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, last_error))
 }
 
-fn serve_in_background(server: Server, root: PathBuf) {
+fn serve_in_background(server: Server, root: PathBuf, database: Option<PathBuf>) {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.clone());
     thread::spawn(move || {
-        for request in server.incoming_requests() {
+        for mut request in server.incoming_requests() {
             let raw_path = request.url().split('?').next().unwrap_or("/");
             let decoded = percent_decode(raw_path);
             let relative = if decoded == "/" { "/index.html".to_string() } else { decoded };
@@ -171,6 +197,35 @@ fn serve_in_background(server: Server, root: PathBuf) {
                 let response = Response::from_data(b"ielts-vocab-health".to_vec())
                     .with_header(header("Content-Type", "text/plain"));
                 let _ = request.respond(response);
+                continue;
+            }
+            if relative == "/__ielts_state" {
+                let Some(path) = database.as_ref() else {
+                    let _ = request.respond(Response::from_data(b"Not found".to_vec()).with_status_code(404));
+                    continue;
+                };
+                match request.method().as_str() {
+                    "GET" => {
+                        let response = match load_database_state(path) {
+                            Some(state) => Response::from_string(state).with_header(header("Content-Type", "application/json; charset=utf-8")),
+                            None => Response::from_data(Vec::new()).with_status_code(204),
+                        };
+                        let _ = request.respond(response);
+                    }
+                    "PUT" => {
+                        let mut body = String::new();
+                        let result = request.as_reader().read_to_string(&mut body).and_then(|_| save_database_state(path, &body).map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error)));
+                        let response = match result {
+                            Ok(()) => Response::from_data(b"ok".to_vec()).with_header(header("Content-Type", "text/plain")),
+                            Err(error) => {
+                                log(&format!("database save error: {error}"));
+                                Response::from_data(b"database error".to_vec()).with_status_code(500)
+                            }
+                        };
+                        let _ = request.respond(response);
+                    }
+                    _ => { let _ = request.respond(Response::from_data(b"Method not allowed".to_vec()).with_status_code(405)); }
+                }
                 continue;
             }
             let candidate = root.join(relative.trim_start_matches('/'));
@@ -324,7 +379,7 @@ fn main() -> wry::Result<()> {
     let window = window_builder.build(&event_loop).expect("failed to create window");
 
     let webview = if let Some(root) = find_root() {
-        match start_server(root.clone()) {
+        match start_server(root.clone(), database_path()) {
             Ok(port) => {
                 let origin = format!("http://127.0.0.1:{port}");
                 log(&format!("root={} port={port}", root.display()));
