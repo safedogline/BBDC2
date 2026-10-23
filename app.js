@@ -4,6 +4,8 @@ const IELTS_BOOK_ID = "ielts-zhenjing-local";
 const DEFAULT_SETTINGS = {
   dailyNew: 20,
   groupSize: 20,
+  vocabularyStart: 1,
+  vocabularyCategory: "all",
   reviewChunk: 100,
   accent: "uk",
   autoPronounce: true,
@@ -48,10 +50,10 @@ const sampleBook = {
   ]
 };
 
+let session = null;
 let state = loadState();
 let currentView = "home";
-let currentBookId = state.activeBookId || state.books[0]?.id || null;
-let session = null;
+let currentBookId = session?.sourceBookId || state.activeBookId || state.books[0]?.id || null;
 let searchQuery = "";
 let wordFilter = "all";
 let dictQuery = "";
@@ -87,6 +89,7 @@ function loadState() {
       saved.checkins = saved.checkins || [];
       saved.listening = saved.listening || { index: 0, done: {} };
       saved.listening.done = saved.listening.done || {};
+      if (saved.session?.queue?.length) session = saved.session;
       return saved;
     }
   } catch (error) { console.warn("Could not read saved study data", error); }
@@ -123,6 +126,8 @@ async function loadIeltsBook(attempt = 0) {
 }
 function persist() {
   state.activeBookId = currentBookId;
+  if (session?.queue?.length) state.session = session;
+  else delete state.session;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (error) { toast("本地存储空间不足，请先导出备份"); }
 }
@@ -255,12 +260,15 @@ function renderHome() {
   const daily = todayStats();
   const settings = state.settings;
   const percent = book.words.length ? Math.round((stats.learned + stats.known) * 100 / book.words.length) : 0;
-  const fresh = Math.max(0, Math.min((settings.dailyNew || 20) - stats.introducedToday, book.words.length - stats.learned - stats.known));
+  const fresh = book.words.length - stats.learned - stats.known;
+  const categories = [...new Set(book.words.map(word => word.category).filter(Boolean))];
+  const scopeOptions = categories.map(category => `<option value="${escapeHtml(category)}" ${settings.vocabularyCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("");
   document.getElementById("view-home").innerHTML = `
     <div class="page-heading"><div><p class="eyebrow">${new Intl.DateTimeFormat("zh-CN", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</p><h1>今天，继续积累</h1></div><div class="date-label">本地学习记录</div></div>
-    <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">目标 ${settings.dailyNew} 词</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
+    <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">今天累计</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
     <div class="section-heading"><h2>当前词书</h2><button class="quiet-link" data-view="words">管理词书 →</button></div>
-    <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="start-new" ${fresh === 0 ? "disabled" : ""}>开始学习</button><button class="secondary-button" data-action="start-review" ${stats.due ? "" : "disabled"}>复习 ${stats.due || ""}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
+    <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="start-new" ${fresh === 0 && !session ? "disabled" : ""}>${session?.mode === "new" ? "继续学习" : "开始学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
+    <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="number" min="1" max="${book.words.length}" value="${Math.min(settings.vocabularyStart || 1, book.words.length)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="-1" aria-label="减少起始词">−</button><button type="button" data-step="1" aria-label="增加起始词">+</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(book.words[Math.min(settings.vocabularyStart || 1, book.words.length) - 1]?.word || "超出词书范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">共 ${book.words.length} 个词条</span></div></section>
     <div class="study-layout"><section class="study-panel"><div class="study-panel-header"><span>签到日历</span><span class="pill">连续 ${streakDays()} 天</span></div>${renderCalendar()}<button class="secondary-button full-button" data-action="checkin">${state.checkins.includes(todayKey()) ? "今日已签到" : "今日签到"}</button></section><section class="study-panel"><div class="study-panel-header"><span>快捷入口</span></div><div class="quick-actions"><button class="quick-action" data-view="listen"><span class="quick-action-icon">♫</span><span><strong>随身听</strong><small>${book.words.length} 个词条</small></span></button><button class="quick-action" data-view="dict"><span class="quick-action-icon">⌕</span><span><strong>词典</strong><small>查词与例句</small></span></button><button class="quick-action" data-view="sentences"><span class="quick-action-icon">¶</span><span><strong>句库</strong><small>${state.favoriteSentences.length} 条例句</small></span></button><button class="quick-action" data-action="open-favorites"><span class="quick-action-icon">☆</span><span><strong>生词本</strong><small>${state.favoriteWords.length} 个收藏</small></span></button><button class="quick-action" id="backup-button"><span class="quick-action-icon">⇩</span><span><strong>导出备份</strong><small>词书与进度 JSON</small></span></button></div></section></div>
     <section class="recent-section"><div class="section-heading"><h2>最近学习</h2><button class="quiet-link" data-view="words">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>单词</th><th>释义</th><th>状态</th></tr></thead><tbody>${recentRows(book)}</tbody></table></div></section>`;
 }
@@ -321,14 +329,27 @@ function meaningOf(word) {
   return `${pos}${pos.endsWith(".") ? "" : "."} ${meaning}`;
 }
 function startSession(mode) {
+  if (session?.queue?.length) {
+    currentBookId = session.sourceBookId || session.bookId || currentBookId;
+    currentView = session.mode === "review" ? "review" : "home";
+    renderShell();
+    if (session.wordStartedAt) renderSession();
+    else { prepareWord(); renderSession(); }
+    return;
+  }
   const book = currentBook(); if (!book) return;
   const stats = bookStats(book);
   let words = [];
   if (mode === "review") words = dueWords(book.id).map(entry => entry.word).slice(0, state.settings.reviewChunk || 100);
-  else words = book.words.filter(word => !isKnown(word, book.id) && getRecord(book.id, word).box === 0).slice(0, Math.max(0, Math.min(state.settings.groupSize || 20, (state.settings.dailyNew || 20) - stats.introducedToday)));
+  else {
+    const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
+    const category = state.settings.vocabularyCategory || "all";
+    words = book.words.filter((word, index) => index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && getRecord(book.id, word).box === 0).slice(0, state.settings.groupSize || 20);
+  }
   if (mode === "review" && !words.length) words = state.books.flatMap(source => dueWords(source.id).map(entry => ({ ...entry.word, _bookId: source.id }))).slice(0, state.settings.reviewChunk || 100);
   if (!words.length) { toast(mode === "review" ? "目前没有到期的复习词条" : "今天的新词已完成"); return; }
   session = createSession(mode, words, words[0]._bookId || book.id, book.id);
+  persist();
   currentView = mode === "review" ? "review" : "home";
   prepareWord();
   renderShell();
@@ -342,6 +363,7 @@ function prepareWord() {
   if (!session) return;
   const entry = session.queue[0];
   if (!entry) return;
+  persist();
   const word = entry.word;
   const bookId = bookIdFor(word);
   const record = getRecord(bookId, word);
@@ -354,6 +376,7 @@ function prepareWord() {
   session.noteDraft = state.notes[recordKey(bookId, word)] || "";
   session.wordStartedAt = Date.now();
   session.choice = record.box <= 1 ? buildChoice(word, bookId) : null;
+  persist();
   activeStudyTab = tabOrder()[0] || "phrase";
   if (!entry.autoPlayed && (state.settings.autoPronounce || (state.settings.listeningQuiz && session.choice))) {
     entry.autoPlayed = true;
@@ -682,6 +705,7 @@ function continueWord() {
   if (!session.queue.length) {
     const mode = session.mode;
     session = null;
+    persist();
     renderShell();
     toast(mode === "review" ? "复习完成，进度已保存" : "本轮学习完成，进度已保存");
   } else {
@@ -704,7 +728,6 @@ function undoWord() {
 }
 function exitSession() {
   if (session) addSeconds((Date.now() - session.wordStartedAt) / 1000);
-  session = null;
   persist();
   renderShell();
 }
@@ -901,7 +924,7 @@ function renderSettings() {
   const row = (label, desc, control) => `<div class="settings-row"><div><strong>${label}</strong>${desc ? `<small>${desc}</small>` : ""}</div>${control}</div>`;
   const toggle = (key, on) => `<button class="switch ${on ? "on" : ""}" data-toggle="${key}" role="switch" aria-checked="${on}"></button>`;
   const options = (key, values, value) => `<select class="setting-select" data-setting="${key}">${values.map(([v, label]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${label}</option>`).join("")}</select>`;
-  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}${row("每日新词", "每天计划学习的新词数量", options("dailyNew", [[10, "10 词"], [20, "20 词"], [30, "30 词"], [50, "50 词"]], s.dailyNew))}</section>`;
+  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}</section>`;
 }
 function renderOrderEditor() {
   return `<section class="settings-card order-card"><div class="settings-row"><div><strong>助记顺序</strong><small>从上到下排列，使用箭头调整</small></div></div>${tabOrder().map((tab, index) => `<div class="order-row"><span>${TAB_LABELS[tab]}</span><div class="order-actions"><button data-action="order-move" data-index="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>↑</button><button data-action="order-move" data-index="${index}" data-dir="1" ${index === tabOrder().length - 1 ? "disabled" : ""}>↓</button></div></div>`).join("")}</section>`;
@@ -1010,9 +1033,16 @@ document.addEventListener("click", event => {
     return;
   }
   const nav = event.target.closest("[data-view]"); if (nav) { if (session) exitSession(); currentView = nav.dataset.view; renderShell(); return; }
-  const bookButton = event.target.closest("[data-book]"); if (bookButton && !bookButton.dataset.action) { currentBookId = bookButton.dataset.book; persist(); if (session) { session = null; } renderShell(); return; }
+  const bookButton = event.target.closest("[data-book]"); if (bookButton && !bookButton.dataset.action) { currentBookId = bookButton.dataset.book; if (session && session.sourceBookId !== currentBookId) { session = null; persist(); } else persist(); renderShell(); return; }
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "start-new") startSession("new");
+  if (event.target.closest("[data-step]")) {
+    const input = document.querySelector('[data-scope="vocabularyStart"]');
+    const step = Number(event.target.closest("[data-step]").dataset.step);
+    input.value = Math.max(1, Math.min(Number(input.max), (Number(input.value) || 1) + step));
+    updateScopeWordPreview(input);
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
   if (action === "start-review") startSession("review");
   if (action === "continue") continueWord();
   if (action === "undo") undoWord();
@@ -1089,15 +1119,38 @@ loadPhonetics();
 });
 document.getElementById("file-input").addEventListener("change", event => { const file = event.target.files[0]; if (file) importFile(file); event.target.value = ""; });
 document.addEventListener("input", event => {
+  if (event.target.matches('[data-scope="vocabularyStart"]')) updateScopeWordPreview(event.target);
   if (event.target.id === "word-search") { searchQuery = event.target.value; const position = event.target.selectionStart; renderWords(); const input = document.getElementById("word-search"); input.focus(); input.setSelectionRange(position, position); }
   if (event.target.id === "dict-search") { dictQuery = event.target.value; dictSelected = null; const position = event.target.selectionStart; renderDict(); const input = document.getElementById("dict-search"); input.focus(); input.setSelectionRange(position, position); }
   if (event.target.id === "listening-word") listeningState.typedWord = event.target.value;
   if (event.target.id === "listening-syn") listeningState.typedSyn = event.target.value;
   if (event.target.id === "note-input" && session) { const word = currentSessionWord(); session.noteDraft = event.target.value; if (word) state.notes[recordKey(bookIdFor(word), word)] = event.target.value; clearTimeout(noteTimer); noteTimer = setTimeout(persist, 400); }
 });
+function updateScopeWordPreview(input) {
+  const book = currentBook();
+  if (!book) return;
+  const index = Math.max(1, Math.min(book.words.length, Number(input.value) || 1)) - 1;
+  const word = book.words[index];
+  const preview = document.getElementById("scope-word-preview");
+  if (preview) preview.textContent = word ? `${word.word}${word.category ? ` · ${word.category}` : ""}` : "超出词书范围";
+}
 document.addEventListener("change", event => {
+  const scope = event.target.closest("[data-scope]");
+  if (scope) {
+    const key = scope.dataset.scope;
+    state.settings[key] = key === "vocabularyStart" ? Math.max(1, Math.min(currentBook()?.words.length || 1, Number(scope.value) || 1)) : scope.value;
+    persist();
+    if (key === "vocabularyStart") scope.value = state.settings[key];
+    toast("新词范围已保存");
+    return;
+  }
   const select = event.target.closest("[data-setting]");
-  if (select) { const key = select.dataset.setting; state.settings[key] = Number(select.value) || select.value; persist(); toast("已保存设置"); if (currentView === "settings") renderSettings(); }
+  if (select) {
+    const key = select.dataset.setting;
+    state.settings[key] = Number(select.value) || select.value;
+    persist();
+    toast("已保存设置");
+  }
 });
 document.addEventListener("keydown", event => {
   if (event.target.id === "listening-word" || event.target.id === "listening-syn") {
