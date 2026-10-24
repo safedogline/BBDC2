@@ -1,4 +1,6 @@
 ﻿const STORAGE_KEY = "cixu-desktop-v1";
+const BACKUP_DB = "cixu-progress-backup";
+const BACKUP_STORE = "state";
 const STATE_API = "./__ielts_state";
 const DAY = 86400000;
 const IELTS_BOOK_ID = "ielts-zhenjing-local";
@@ -53,6 +55,7 @@ const sampleBook = {
 };
 
 let session = null;
+let localStateAvailable = false;
 let state = loadState();
 let currentView = "home";
 let currentBookId = session?.sourceBookId || state.activeBookId || state.books[0]?.id || null;
@@ -77,12 +80,14 @@ let phoneticsMap = {};
 let sidebarCollapsed = localStorage.getItem("cixu-sidebar") === "1";
 let databaseAvailable = false;
 let databaseSaveTimer;
+let databaseSaveQueue = Promise.resolve();
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const saved = JSON.parse(raw);
     if (saved && Array.isArray(saved.books) && saved.reviews) {
+      localStateAvailable = true;
       saved.records = saved.records || {};
       saved.daily = saved.daily || {};
       saved.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
@@ -120,6 +125,7 @@ async function loadIeltsBook(attempt = 0) {
       meaning: item.meaning || "",
       partOfSpeech: item.pos || "",
       example: item.example || "",
+      exampleTranslation: item.translation || item.exampleTranslation || "",
       extra: item.extra && item.extra !== "-" ? item.extra : "",
       category,
       groupNumber: groupIndex + 1,
@@ -148,18 +154,85 @@ function persist() {
   const serialized = JSON.stringify(state);
   try { localStorage.setItem(STORAGE_KEY, serialized); }
   catch (error) { toast("本地存储空间不足，请先导出备份"); }
+  saveIndexedState(serialized);
   if (databaseAvailable) {
     clearTimeout(databaseSaveTimer);
-    databaseSaveTimer = setTimeout(() => fetch(STATE_API, { method: "PUT", headers: { "Content-Type": "application/json" }, body: serialized }).catch(() => { databaseAvailable = false; }), 80);
+    databaseSaveTimer = setTimeout(() => saveDatabaseState(serialized), 80);
   }
 }
+function openBackupDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BACKUP_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(BACKUP_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function saveIndexedState(serialized) {
+  try {
+    const db = await openBackupDatabase();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(BACKUP_STORE, "readwrite");
+      transaction.objectStore(BACKUP_STORE).put(serialized, "latest");
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+  } catch (error) { /* IndexedDB may be unavailable in restricted contexts. */ }
+}
+async function readIndexedState() {
+  try {
+    const db = await openBackupDatabase();
+    const serialized = await new Promise((resolve, reject) => {
+      const request = db.transaction(BACKUP_STORE, "readonly").objectStore(BACKUP_STORE).get("latest");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    const saved = typeof serialized === "string" ? JSON.parse(serialized) : null;
+    return saved && Array.isArray(saved.books) && saved.reviews ? saved : null;
+  } catch (error) { return null; }
+}
+async function restoreIndexedState() {
+  const saved = await readIndexedState();
+  if (!saved) return false;
+  state = normalizeState(saved);
+  session = state.session?.queue?.length ? state.session : null;
+  currentBookId = state.activeBookId || state.books[0]?.id || null;
+  applyTheme();
+  renderShell();
+  return true;
+}
+function saveDatabaseState(serialized, keepalive = false) {
+  if (keepalive) return fetch(STATE_API, { method: "PUT", headers: { "Content-Type": "application/json" }, body: serialized, keepalive: true }).catch(() => {});
+  databaseSaveQueue = databaseSaveQueue.catch(() => {}).then(() => fetch(STATE_API, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: serialized,
+    keepalive: false,
+  })).catch(() => { databaseAvailable = false; });
+  return databaseSaveQueue;
+}
+window.addEventListener("pagehide", () => {
+  clearTimeout(databaseSaveTimer);
+  if (!databaseAvailable) return;
+  state.activeBookId = currentBookId;
+  if (session?.queue?.length) state.session = session;
+  else delete state.session;
+  saveDatabaseState(JSON.stringify(state), true);
+});
 
 async function loadDatabaseState() {
   try {
     const response = await fetch(STATE_API, { cache: "no-store" });
-    if (!response.ok) return;
+    if (!response.ok) { await restoreIndexedState(); return; }
     databaseAvailable = true;
-    if (response.status === 204) return;
+    if (response.status === 204) {
+      const hasLocalProgress = localStateAvailable && (Object.keys(state.records || {}).length > 0 || session?.queue?.length);
+      if (hasLocalProgress) saveDatabaseState(JSON.stringify(state));
+      else await restoreIndexedState();
+      return;
+    }
     const saved = await response.json();
     if (!saved || !Array.isArray(saved.books) || !saved.reviews) return;
     state = normalizeState(saved);
@@ -167,7 +240,7 @@ async function loadDatabaseState() {
     currentBookId = state.activeBookId || state.books[0]?.id || null;
     applyTheme();
     renderShell();
-  } catch (error) { /* static browser hosting has no database API */ }
+  } catch (error) { await restoreIndexedState(); }
 }
 
 function normalizeState(saved) {
@@ -265,7 +338,7 @@ function parseImport(text, fileName) {
 function normalizeWord(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return null;
   const get = (...keys) => { for (const key of keys) if (item[key] != null && String(item[key]).trim()) return String(item[key]).trim(); return ""; };
-  return { word: get("word", "term", "headword", "单词", "词条", "英文"), meaning: get("meaning", "definition", "translation", "释义", "中文", "意思"), example: get("example", "sentence", "例句"), translation: get("exampleTranslation", "example_translation", "translationExample", "例句翻译"), phonetic: get("phonetic", "pronunciation", "音标"), audio: get("audio", "audioUrl", "audio_url", "发音"), category: get("category", "group", "unit", "分类", "单元") };
+  return { word: get("word", "term", "headword", "单词", "词条", "英文"), meaning: get("meaning", "definition", "translation", "释义", "中文", "意思"), example: get("example", "sentence", "例句"), exampleTranslation: get("exampleTranslation", "example_translation", "translationExample", "例句翻译"), translation: get("meaning", "definition", "translation", "释义", "中文", "意思"), phonetic: get("phonetic", "pronunciation", "音标"), audio: get("audio", "audioUrl", "audio_url", "发音"), category: get("category", "group", "unit", "分类", "单元") };
 }
 function applyTheme() {
   const theme = state.settings.followSystem ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "deep" : "light") : state.settings.theme;
@@ -322,8 +395,8 @@ function renderHome() {
     <div class="page-heading"><div><p class="eyebrow">${new Intl.DateTimeFormat("zh-CN", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</p><h1>今天，继续积累</h1></div><div class="date-label">本地学习记录</div></div>
     <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">今天累计</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
     <div class="section-heading"><h2>当前词书</h2><button class="quiet-link" data-view="words">管理词书 →</button></div>
-    <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="start-new" ${fresh === 0 && !session ? "disabled" : ""}>${session?.mode === "new" ? "继续学习" : "开始学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
-     <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(scopedWords.length || 1).length}" value="${Math.min(settings.vocabularyStart || 1, scopedWords.length || 1)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="1" aria-label="增加起始词">+</button><button type="button" data-step="-1" aria-label="减少起始词">−</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(scopedWords[Math.min(settings.vocabularyStart || 1, scopedWords.length || 1) - 1]?.word || "超出主题范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">${settings.vocabularyCategory === "all" ? "共" : "主题内共"} ${scopedWords.length} 个词条</span></div></section>
+     <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="${session ? "resume-session" : "start-from-scope"}" ${fresh === 0 && session?.mode !== "review" ? "disabled" : ""}>${session?.mode === "review" ? "继续复习" : "继续学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
+     <section class="study-panel scope-panel"><div class="study-panel-header"><span>选择学习起点</span><span class="pill">仅影响新词</span></div><div class="scope-controls"><label class="scope-start-label">从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(scopedWords.length || 1).length}" value="${Math.min(settings.vocabularyStart || 1, scopedWords.length || 1)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="1" aria-label="增加起始词">+</button><button type="button" data-step="-1" aria-label="减少起始词">−</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(scopedWords[Math.min(settings.vocabularyStart || 1, scopedWords.length || 1) - 1]?.word || "超出主题范围")}</span></label><label class="scope-category-label">主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">${settings.vocabularyCategory === "all" ? "共" : "主题内共"} ${scopedWords.length} 个词条</span><button class="primary-button scope-start-button" data-action="start-from-scope" ${scopedWords.length ? "" : "disabled"}>开始学习</button></div></section>
     <div class="study-layout"><section class="study-panel"><div class="study-panel-header"><span>签到日历</span><span class="pill">连续 ${streakDays()} 天</span></div>${renderCalendar()}<button class="secondary-button full-button" data-action="checkin">${state.checkins.includes(todayKey()) ? "今日已签到" : "今日签到"}</button></section><section class="study-panel"><div class="study-panel-header"><span>快捷入口</span></div><div class="quick-actions"><button class="quick-action" data-view="listen"><span class="quick-action-icon">♫</span><span><strong>随身听</strong><small>${book.words.length} 个词条</small></span></button><button class="quick-action" data-view="dict"><span class="quick-action-icon">⌕</span><span><strong>词典</strong><small>查词与例句</small></span></button><button class="quick-action" data-view="sentences"><span class="quick-action-icon">¶</span><span><strong>句库</strong><small>${state.favoriteSentences.length} 条例句</small></span></button><button class="quick-action" data-action="open-favorites"><span class="quick-action-icon">☆</span><span><strong>生词本</strong><small>${state.favoriteWords.length} 个收藏</small></span></button><button class="quick-action" id="backup-button"><span class="quick-action-icon">⇩</span><span><strong>导出备份</strong><small>词书与进度 JSON</small></span></button></div></section></div>
     <section class="recent-section"><div class="section-heading"><h2>最近学习</h2><button class="quiet-link" data-view="words">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>单词</th><th>释义</th><th>状态</th></tr></thead><tbody>${recentRows(book)}</tbody></table></div></section>`;
 }
@@ -386,8 +459,8 @@ function meaningOf(word) {
 function wordsForScope(book, category = "all") {
   return book?.words.filter(word => category === "all" || word.category === category) || [];
 }
-function startSession(mode) {
-  if (session?.queue?.length) {
+function startSession(mode, { replace = false, fromScope = false } = {}) {
+  if (!replace && session?.queue?.length) {
     currentBookId = session.sourceBookId || session.bookId || currentBookId;
     currentView = session.mode === "review" ? "review" : "home";
     renderShell();
@@ -402,10 +475,14 @@ function startSession(mode) {
   else {
     const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
     const category = state.settings.vocabularyCategory || "all";
-    words = wordsForScope(book, category).filter((word, index) => {
-      const record = getRecord(book.id, word);
-      return index + 1 >= start && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
-    }).slice(0, state.settings.groupSize || 20);
+    const scopedWords = wordsForScope(book, category);
+    words = fromScope
+      ? scopedWords.slice(start - 1).filter(word => !isKnown(word, book.id))
+      : scopedWords.filter((word, index) => {
+        const record = getRecord(book.id, word);
+        return index + 1 >= start && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
+      });
+    words = words.slice(0, state.settings.groupSize || 20);
   }
   if (mode === "review" && !words.length) words = state.books.flatMap(source => dueWords(source.id).map(entry => ({ ...entry.word, _bookId: source.id }))).slice(0, state.settings.reviewChunk || 100);
   if (!words.length) { toast(mode === "review" ? "目前没有到期的复习词条" : "今天的新词已完成"); return; }
@@ -442,12 +519,10 @@ function prepareWord() {
   const record = getRecord(bookId, word);
   session.answered = false;
   session.revealed = false;
-  session.material = false;
-  session.materialPage = 0;
   session.spelling = false;
   session.answerGrade = null;
   session.answerSource = null;
-  session.choiceInspect = null;
+  session.choiceInspect = [];
   session.collocationTranslations = {};
   session.noteDraft = state.notes[recordKey(bookId, word)] || "";
   session.wordStartedAt = Date.now();
@@ -500,7 +575,7 @@ function buildChoice(word, bookId) {
   const listening = state.settings.listeningQuiz && session.choice && !revealed;
   const spellingResult = revealed && session.answerSource === "spelling";
   const tabs = tabOrder();
-  const panels = revealed && !session.choice ? `<div class="study-tabs">${tabs.map(tab => `<button class="study-tab ${activeStudyTab === tab ? "selected" : ""}" data-study-tab="${tab}">${TAB_LABELS[tab]}</button>`).join("")}</div>${renderTabPanel(word, activeStudyTab)}${session.material ? renderMaterial(word) : ""}` : "";
+  const panels = revealed && !session.choice ? `<div class="study-tabs">${tabs.map(tab => `<button class="study-tab ${activeStudyTab === tab ? "selected" : ""}" data-study-tab="${tab}">${TAB_LABELS[tab]}</button>`).join("")}</div>${renderTabPanel(word, activeStudyTab)}` : "";
   const actions = session.spelling
     ? `<div class="spell-box"><input id="spell-input" class="spell-input" autocomplete="off" autocapitalize="off" placeholder="输入拼写，回车检查"><div class="spell-actions"><button class="answer-button again" data-action="cancel-spell">取消</button><button class="answer-button known" data-action="check-spell">检查</button></div></div>`
     : revealed
@@ -519,7 +594,6 @@ function buildChoice(word, bookId) {
    ${session.choice && !session.spelling ? `<div class="choice-stage"><div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed || !listening ? "" : "听发音，选择对应词义"}</div>${!spellingResult ? renderChoice(word) : ""}</div>` : ""}
    ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
   ${panels}
-  ${revealed && !session.choice ? `<div class="learn-audio-row"><button class="word-audio" data-action="material">学习材料</button></div>` : ""}
   <div class="answer-actions">${actions}</div>
   ${revealed && session.answerGrade === "unsure" ? '<div class="unsure-hint">模糊按“没记住”处理，这个词稍后会在本组再次出现。</div>' : ""}
   </article></div>`;
@@ -528,15 +602,16 @@ function buildChoice(word, bookId) {
 function renderChoice() {
   if (!session?.choice) return "";
   const choice = session.choice;
+  const inspected = Array.isArray(session.choiceInspect) ? session.choiceInspect : [];
   const locked = choice.selected != null;
   return `<div class="choice-list">${choice.options.map((option, index) => {
     let cls = `choice-option ${String(option.meaning || "").length > 22 ? "long-meaning" : ""}`;
     if (locked) {
       if (option.correct) cls += " correct";
       else if (choice.selected === index) cls += " wrong";
-      else if (session.choiceInspect === index) cls += " inspect";
+      else if (inspected.includes(index)) cls += " inspect";
     }
-    const showWord = locked && (option.correct || choice.selected === index || session.choiceInspect === index);
+    const showWord = locked && (option.correct || choice.selected === index || inspected.includes(index));
     return `<button class="${cls}" data-choice="${index}"><span class="choice-meaning">${escapeHtml(option.meaning)}</span><span class="choice-word">${showWord && option.word ? escapeHtml(option.word) : ""}</span></button>`;
   }).join("")}</div>`;
 }
@@ -561,11 +636,11 @@ function meaningTokens(meaning) {
 function collocationsOf(word) {
   const result = [];
   const example = completeExample(word.example);
-  if (example) result.push({ text: example, translation: word.translation || "", kind: "例句" });
+  if (example) result.push({ text: example, translation: word.exampleTranslation || word.translation || "", kind: "例句" });
   const book = state.books.find(item => item.id === bookIdFor(word));
   (word.groupWords || []).slice(0, 5).forEach(item => {
     if (item.toLowerCase() === word.word.toLowerCase()) return;
-    const match = book?.words.find(entry => entry.word.toLowerCase() === item.toLowerCase());
+    const match = book?.words.find(entry => [entry.word, ...(entry.variants || [])].some(form => form.toLowerCase() === item.toLowerCase()));
     result.push({ text: item, translation: match ? meaningOf(match) : "", kind: "同组词" });
   });
   return result;
@@ -676,7 +751,7 @@ function renderTabPanel(word, tab) {
   const bookId = bookIdFor(word);
   if (tab === "phrase") {
     const items = collocationsOf(word);
-    return `<div class="tab-panel"><h3>词组搭配</h3>${items.length ? `<div class="collocation-list">${items.map((item, index) => { const showTranslation = session.collocationTranslations?.[index] && item.translation; return `<button type="button" class="collocation-row ${showTranslation ? "translation-shown" : ""}" data-collocation="${index}" aria-label="${showTranslation ? "显示英文" : "显示中文释义"}" ${item.translation ? "" : "disabled title=\"没有对应译文\""}><span class="collocation-text">${escapeHtml(showTranslation ? item.translation : item.text)}</span><span class="tab-src">${item.kind}</span></button>`; }).join("")}</div>` : '<p class="tab-empty">没有可用的例句或同组词。</p>'}</div>`;
+    return `<div class="tab-panel"><h3>词组搭配</h3>${items.length ? `<div class="collocation-list">${items.map((item, index) => { const showTranslation = Boolean(session.collocationTranslations?.[index]); return `<button type="button" class="collocation-row ${showTranslation ? "translation-shown" : ""}" data-collocation="${index}" aria-label="${showTranslation ? "显示英文" : "显示中文释义"}"><span class="collocation-text">${escapeHtml(showTranslation ? item.translation || "暂无译文" : item.text)}</span><span class="tab-src">${item.kind}</span></button>`; }).join("")}</div>` : '<p class="tab-empty">没有可用的例句或同组词。</p>'}</div>`;
   }
   if (tab === "root") {
     const parts = morphAnalyze(word);
@@ -703,14 +778,6 @@ function renderTabPanel(word, tab) {
     return `<div class="tab-panel"><h3>近义与相关</h3>${readingSyns.length ? `<p class="tab-note">阅读 538 同义替换</p><div class="chip-row">${readingSyns.map(item => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}${related.length ? `<div class="collocation-list">${related.map(item => `<div class="collocation-row"><span class="collocation-text"><strong>${escapeHtml(item.word.word)}</strong> ${escapeHtml(item.word.meaning || "")}</span><span class="tab-src">释义匹配</span></div>`).join("")}</div>` : ""}${groups.length ? `<p class="tab-note">同组词</p><div class="chip-row">${groups.map(item => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}${!readingSyns.length && !related.length && !groups.length ? `<div class="chip-row">${derivativesOf(word).map(item => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div><p class="tab-note">没有语义匹配，展示同词族形式。</p>` : ""}<p class="tab-src">按阅读 538、释义关键词与同组词匹配</p></div>`;
   }
   return "";
-}
-function renderMaterial(word) {
-  const page = session?.materialPage || 0;
-  const groups = (word.groupWords || []).filter(item => item.toLowerCase() !== word.word.toLowerCase()).slice(0, 8);
-  const body = page === 0
-    ? `<p class="material-title">${escapeHtml(word.example || "此词条没有收录例句")}</p><p class="material-trans">${escapeHtml(word.translation || "")}</p><p class="material-source">${escapeHtml(word.category || "自定义词书")}${word.groupNumber ? ` · 第 ${word.groupNumber} 组` : ""}</p>`
-    : `${groups.length ? `<p class="material-subtitle">同组词</p><div class="chip-row">${groups.map(item => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}${word.extra ? `<p class="material-trans">${escapeHtml(word.extra)}</p>` : ""}<p class="material-subtitle">拼写</p><div class="chip-row">${spellingChunks(word).map(chunk => `<span class="chip">${escapeHtml(chunk)}</span>`).join("")}</div>`;
-  return `<div class="material-sheet"><div class="material-head"><strong>学习材料</strong><button class="quiet-link" data-action="material">收起卡片</button></div><div class="material-body">${body}</div><div class="material-foot">${page === 0 ? '<button class="quiet-link" data-action="fav-sentence">☆ 收藏例句</button>' : "<span></span>"}<div class="material-nav"><button class="quiet-link" data-action="material-page" data-page="-1" ${page === 0 ? "disabled" : ""}>←</button><span class="material-page">${page + 1} / 2</span><button class="quiet-link" data-action="material-page" data-page="1" ${page === 1 ? "disabled" : ""}>→</button></div><button class="quiet-link" data-action="continue">下一词</button></div></div>`;
 }
 function markAnswer(grade) {
   const word = currentSessionWord();
@@ -743,7 +810,10 @@ function chooseOption(index) {
 function inspectChoice(index) {
   if (!session?.choice || !session.answered) return;
   if (!session.choice.options[index]) return;
-  session.choiceInspect = index;
+  if (index === session.choice.selected || session.choice.options[index].correct) return;
+  const inspected = Array.isArray(session.choiceInspect) ? session.choiceInspect : (session.choiceInspect = []);
+  if (!inspected.includes(index) && inspected.length < 2) inspected.push(index);
+  persist();
   renderSession();
 }
 function revealAnswer() {
@@ -1049,9 +1119,21 @@ async function importFile(file) {
     state.books.push({ id, name: imported.name || "导入词书", category: "导入", createdAt: Date.now(), words: [...unique.values()] }); currentBookId = id; persist(); currentView = "home"; renderShell(); toast(`已导入 ${unique.size} 个词条${skipped ? `，跳过 ${skipped} 个无效词条` : ""}`);
   } catch (error) { showModal("导入失败", error.message || "无法读取该文件"); }
 }
-function showModal(title, message, confirmLabel = "关闭", onConfirm) {
-  const backdrop = document.createElement("div"); backdrop.className = "modal-backdrop"; backdrop.innerHTML = `<div class="modal"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><div class="modal-actions"><button class="secondary-button" data-modal-cancel>取消</button><button class="primary-button" data-modal-confirm>${escapeHtml(confirmLabel)}</button></div></div>`;
+function showModal(title, message, confirmLabel = "关闭", onConfirm, cancelLabel = "取消") {
+  const backdrop = document.createElement("div"); backdrop.className = "modal-backdrop"; backdrop.innerHTML = `<div class="modal"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><div class="modal-actions"><button class="secondary-button" data-modal-cancel>${escapeHtml(cancelLabel)}</button><button class="primary-button" data-modal-confirm>${escapeHtml(confirmLabel)}</button></div></div>`;
   document.body.append(backdrop); backdrop.addEventListener("click", event => { if (event.target === backdrop || event.target.closest("[data-modal-cancel]")) backdrop.remove(); if (event.target.closest("[data-modal-confirm]")) { backdrop.remove(); onConfirm?.(); } });
+}
+function startFromSelectedScope() {
+  const book = currentBook();
+  if (!book) return;
+  const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
+  const category = state.settings.vocabularyCategory || "all";
+  const first = wordsForScope(book, category)[start - 1];
+  const description = `${category === "all" ? "全部主题" : category}，第 ${start} 词${first ? `「${first.word}」` : ""}`;
+  const begin = () => startSession("new", { replace: true, fromScope: true });
+  if (session?.queue?.length) {
+    showModal("放弃之前的学习进度？", `当前还有未完成的${session.mode === "review" ? "复习" : "学习"}进度。选择“是”将放弃该进度，并从${description}开始；选择“否”则保留原进度。`, "是，从此起点开始", begin, "否，保留进度");
+  } else begin();
 }
 function speak(text) { if ("speechSynthesis" in window) { window.speechSynthesis.cancel(); const utter = new SpeechSynthesisUtterance(text); utter.lang = state.settings.accent === "us" ? "en-US" : "en-GB"; window.speechSynthesis.speak(utter); } else toast("此浏览器不支持系统语音"); }
 function stopAudio() { if (listen.audio) { listen.audio.pause(); listen.audio = null; } }
@@ -1131,6 +1213,8 @@ document.addEventListener("click", event => {
   const bookButton = event.target.closest("[data-book]"); if (bookButton && !bookButton.dataset.action) { currentBookId = bookButton.dataset.book; if (session && session.sourceBookId !== currentBookId) { session = null; persist(); } else persist(); renderShell(); return; }
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "start-new") startSession("new");
+  if (action === "start-from-scope") startFromSelectedScope();
+  if (action === "resume-session") startSession(session?.mode || "new");
   if (event.target.closest("[data-step]")) {
     const input = document.querySelector('[data-scope="vocabularyStart"]');
     const step = Number(event.target.closest("[data-step]").dataset.step);
@@ -1159,7 +1243,6 @@ document.addEventListener("click", event => {
     }
   }
   if (action === "exit-session") exitSession();
-  if (action === "material") { if (session) { session.material = !session.material; renderSession(); } }
   if (action === "fav-word") { const word = action && event.target.closest("[data-word]") ? findWord(event.target.closest("[data-word]").dataset.word) : currentSessionWord(); if (word) toggleFavWord(word); }
   if (action === "like") { const word = currentSessionWord(); if (word) toggleLike(word); }
   if (action === "known") { const word = currentSessionWord(); if (word) toggleKnown(word); }
@@ -1171,7 +1254,6 @@ document.addEventListener("click", event => {
   if (action === "play-word") playWord(event.target.closest("[data-word]").dataset.word);
   if (action === "checkin") toggleCheckin();
   if (action === "open-favorites") { wordFilter = "fav"; currentView = "words"; renderShell(); }
-  if (action === "material-page") { if (session) { const delta = Number(event.target.closest("[data-page]").dataset.page); session.materialPage = Math.max(0, Math.min(1, (session.materialPage || 0) + delta)); renderSession(); } }
   if (action === "toggle-accent") { state.settings.accent = state.settings.accent === "uk" ? "us" : "uk"; persist(); if (session) renderSession(); else renderShell(); }
   if (action === "toggle-font") { state.settings.fontStyle = state.settings.fontStyle === "sans" ? "serif" : "sans"; persist(); applyTheme(); renderAppearance(); }
   if (action === "order-open") { orderOpen = !orderOpen; renderSettings(); }
@@ -1218,9 +1300,10 @@ document.addEventListener("click", event => {
   const collocationButton = event.target.closest("[data-collocation]"); if (collocationButton && session) {
     const index = Number(collocationButton.dataset.collocation);
     const item = collocationsOf(currentSessionWord())[index];
-    if (item?.translation) {
+    if (item) {
       session.collocationTranslations ||= {};
       session.collocationTranslations[index] = !session.collocationTranslations[index];
+      persist();
       renderSession();
     }
   }
