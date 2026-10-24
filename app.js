@@ -448,6 +448,7 @@ function prepareWord() {
   session.answerGrade = null;
   session.answerSource = null;
   session.choiceInspect = null;
+  session.collocationTranslations = {};
   session.noteDraft = state.notes[recordKey(bookId, word)] || "";
   session.wordStartedAt = Date.now();
   session.choice = record.box <= 1 ? buildChoice(word, bookId) : null;
@@ -560,8 +561,13 @@ function meaningTokens(meaning) {
 function collocationsOf(word) {
   const result = [];
   const example = completeExample(word.example);
-  if (example) result.push({ text: example, kind: "例句" });
-  (word.groupWords || []).slice(0, 5).forEach(item => { if (item.toLowerCase() !== word.word.toLowerCase()) result.push({ text: item, kind: "同组词" }); });
+  if (example) result.push({ text: example, translation: word.translation || "", kind: "例句" });
+  const book = state.books.find(item => item.id === bookIdFor(word));
+  (word.groupWords || []).slice(0, 5).forEach(item => {
+    if (item.toLowerCase() === word.word.toLowerCase()) return;
+    const match = book?.words.find(entry => entry.word.toLowerCase() === item.toLowerCase());
+    result.push({ text: item, translation: match ? meaningOf(match) : "", kind: "同组词" });
+  });
   return result;
 }
 function pluralOf(base) {
@@ -670,7 +676,7 @@ function renderTabPanel(word, tab) {
   const bookId = bookIdFor(word);
   if (tab === "phrase") {
     const items = collocationsOf(word);
-    return `<div class="tab-panel"><h3>词组搭配</h3>${items.length ? `<div class="collocation-list">${items.map(item => `<div class="collocation-row"><span class="collocation-text">${escapeHtml(item.text)}</span><span class="tab-src">${item.kind}</span></div>`).join("")}</div>` : '<p class="tab-empty">没有可用的例句或同组词。</p>'}</div>`;
+    return `<div class="tab-panel"><h3>词组搭配</h3>${items.length ? `<div class="collocation-list">${items.map((item, index) => { const showTranslation = session.collocationTranslations?.[index] && item.translation; return `<button type="button" class="collocation-row ${showTranslation ? "translation-shown" : ""}" data-collocation="${index}" aria-label="${showTranslation ? "显示英文" : "显示中文释义"}" ${item.translation ? "" : "disabled title=\"没有对应译文\""}><span class="collocation-text">${escapeHtml(showTranslation ? item.translation : item.text)}</span><span class="tab-src">${item.kind}</span></button>`; }).join("")}</div>` : '<p class="tab-empty">没有可用的例句或同组词。</p>'}</div>`;
   }
   if (tab === "root") {
     const parts = morphAnalyze(word);
@@ -1209,6 +1215,15 @@ document.addEventListener("click", event => {
   const dictRow = event.target.closest("[data-dict-word]"); if (dictRow) { dictSelected = dictRow.dataset.dictWord; renderDict(); }
   const toggleButton = event.target.closest("[data-toggle]"); if (toggleButton) { const key = toggleButton.dataset.toggle; state.settings[key] = !state.settings[key]; persist(); applyTheme(); if (currentView === "settings") renderSettings(); else renderAppearance(); }
   const choiceButton = event.target.closest("[data-choice]"); if (choiceButton) { const index = Number(choiceButton.dataset.choice); if (session?.answered) inspectChoice(index); else chooseOption(index); }
+  const collocationButton = event.target.closest("[data-collocation]"); if (collocationButton && session) {
+    const index = Number(collocationButton.dataset.collocation);
+    const item = collocationsOf(currentSessionWord())[index];
+    if (item?.translation) {
+      session.collocationTranslations ||= {};
+      session.collocationTranslations[index] = !session.collocationTranslations[index];
+      renderSession();
+    }
+  }
   const studyTab = event.target.closest("[data-study-tab]")?.dataset.studyTab; if (studyTab) { activeStudyTab = studyTab; renderSession(); }
   if (event.target.closest("#backup-button") || event.target.closest("#books-export")) exportBackup();
   if (event.target.closest("#import-button") || event.target.closest("#words-import") || event.target.closest("#empty-import")) document.getElementById("file-input").click();

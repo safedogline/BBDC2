@@ -237,7 +237,12 @@ body[data-theme="light"] .answer-button.again{color:#7c2b2b}
 .tab-empty{margin:0;color:var(--dim);font-size:calc(11px + var(--global-font-size, 0px))}
 .tab-src{display:block;margin-top:8px;color:var(--dim);font-size:calc(9.5px + var(--global-font-size, 0px))}
 .collocation-list{display:grid;gap:6px}
-.collocation-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:calc(11.5px + var(--global-font-size, 0px))}
+.collocation-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;text-align:left;font-size:calc(11.5px + var(--global-font-size, 0px))}
+.collocation-row[data-collocation]{cursor:pointer}
+.collocation-row[data-collocation]:hover:not(:disabled){border-color:var(--gold);background:var(--surface-3)}
+.collocation-row[data-collocation]:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.collocation-row[data-collocation].translation-shown .collocation-text{color:var(--gold-2)}
+.collocation-row[data-collocation]:disabled{cursor:default;opacity:.75}
 .collocation-text{color:var(--text)}
 .collocation-text strong{color:var(--gold-2);font-weight:600}
 .collocation-row .tab-src{margin:0;flex:0 0 auto}
