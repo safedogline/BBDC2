@@ -5,6 +5,7 @@ const IELTS_BOOK_ID = "ielts-zhenjing-local";
 const DEFAULT_SETTINGS = {
   dailyNew: 20,
   groupSize: 20,
+  globalFontSize: 0,
   vocabularyStart: 1,
   vocabularyCategory: "all",
   reviewChunk: 100,
@@ -270,6 +271,7 @@ function applyTheme() {
   const theme = state.settings.followSystem ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "deep" : "light") : state.settings.theme;
   document.body.dataset.theme = theme || "deep";
   document.body.dataset.font = state.settings.fontStyle || "sans";
+  document.documentElement.style.setProperty("--global-font-size", `${state.settings.globalFontSize || 0}px`);
 }
 function applySidebar() {
   document.body.dataset.sidebar = sidebarCollapsed ? "collapsed" : "expanded";
@@ -509,12 +511,12 @@ function buildChoice(word, bookId) {
         ? `<button class="answer-button again" data-action="reveal">看答案</button>`
         : `<button class="answer-button again" data-grade="again">不认识</button><button class="answer-button unsure" data-grade="unsure">模糊</button><button class="answer-button known" data-grade="known">认识</button>`);
   root.innerHTML = `<div class="learn-layout"><div class="learn-toolbar"><button data-action="exit-session">← 返回</button><span>${session.mode === "review" ? "复习" : "新词学习"} · ${Math.min(session.completed + 1, total)} / ${total}${entry.streak ? ` · 连对 ${entry.streak}/${session.required}` : ""}</span><span>${total - session.completed} 剩余</span></div>
-  <article class="learn-card"><div class="learn-progress"><span style="width:${progress}%"></span></div>
+   <article class="learn-card ${revealed ? "answered" : "recalling"}"><div class="learn-progress"><span style="width:${progress}%"></span></div>
   <div class="learn-topline"><span class="word-phonetic">${phoneticOf(word) ? `<span class="accent-tag">${accentLabel()}</span>${escapeHtml(phoneticOf(word))}` : escapeHtml(word.partOfSpeech || "")}</span><div class="word-tools"><button class="word-tool" data-action="play-audio">▶ 发音</button><button class="word-tool ${state.favoriteWords.includes(recordKey(bookId, word)) ? "active" : ""}" data-action="fav-word">☆ ${state.favoriteWords.includes(recordKey(bookId, word)) ? "已收藏" : "收藏"}</button>${state.settings.spellHint ? '<button class="word-tool" data-action="spell">abc 拼写</button>' : ""}<button class="word-tool ${isKnown(word, bookId) ? "active" : ""}" data-action="known">${isKnown(word, bookId) ? "已标熟" : "标熟"}</button><button class="like-pill" data-action="like">👍 ${likeCount(word, bookId)}</button></div></div>
   <h1 class="learn-word">${session.spelling ? "拼写测试" : listening ? "🎧 听音选义" : escapeHtml(word.word.split(" / ")[0])}</h1>
   ${!session.spelling && !listening && variants.length ? `<div class="word-variants">${variants.map(variant => `<span>${escapeHtml(variant)}</span>`).join("")}</div>` : ""}
   ${session.spelling ? `<div class="word-meaning spell-hint">${escapeHtml(meaningOf(word))}</div>` : ""}
-  ${session.choice && !revealed ? `<div class="choice-prompt">${listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>` : ""}
+   ${session.choice && !session.spelling ? `<div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed ? "" : listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>` : ""}
    ${session.choice && !session.spelling && !spellingResult ? renderChoice(word) : ""}
    ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
   ${session.choice && revealed && session.answerGrade === "again" && !spellingResult ? `<div class="choice-explain">${state.settings.confuseAnalyze ? "红色选项是刚才选错或容易混淆的释义，蓝色为正确释义。" : "已显示正确释义。"}</div>` : ""}
@@ -1003,7 +1005,8 @@ function renderSettings() {
   const row = (label, desc, control) => `<div class="settings-row"><div><strong>${label}</strong>${desc ? `<small>${desc}</small>` : ""}</div>${control}</div>`;
   const toggle = (key, on) => `<button class="switch ${on ? "on" : ""}" data-toggle="${key}" role="switch" aria-checked="${on}"></button>`;
   const options = (key, values, value) => `<select class="setting-select" data-setting="${key}">${values.map(([v, label]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${label}</option>`).join("")}</select>`;
-  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}</section>`;
+  const fontStepper = `<span class="font-stepper"><button type="button" data-font-step="-1" aria-label="减小全局字号">−</button><output>${s.globalFontSize > 0 ? `+${s.globalFontSize}` : s.globalFontSize}px</output><button type="button" data-font-step="1" aria-label="增大全局字号">+</button></span>`;
+  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("全局字号", "所有页面文字整体调整，每次改变 1px", fontStepper)}${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}</section>`;
 }
 function renderOrderEditor() {
   return `<section class="settings-card order-card"><div class="settings-row"><div><strong>助记顺序</strong><small>从上到下排列，使用箭头调整</small></div></div>${tabOrder().map((tab, index) => `<div class="order-row"><span>${TAB_LABELS[tab]}</span><div class="order-actions"><button data-action="order-move" data-index="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>↑</button><button data-action="order-move" data-index="${index}" data-dir="1" ${index === tabOrder().length - 1 ? "disabled" : ""}>↓</button></div></div>`).join("")}</section>`;
@@ -1196,6 +1199,14 @@ document.addEventListener("click", event => {
   const filterTab = event.target.closest("[data-filter-tab]"); if (filterTab) { wordFilter = filterTab.dataset.filterTab; renderWords(); }
   const dictTabButton = event.target.closest("[data-dict-tab]"); if (dictTabButton) { dictTab = dictTabButton.dataset.dictTab; renderDict(); }
   const materialTabButton = event.target.closest("[data-material-tab]"); if (materialTabButton) { materialTab = materialTabButton.dataset.materialTab; renderMaterials(); }
+  const fontButton = event.target.closest("[data-font-step]"); if (fontButton) {
+    const step = Number(fontButton.dataset.fontStep);
+    state.settings.globalFontSize = Math.max(-2, Math.min(6, (state.settings.globalFontSize || 0) + step));
+    persist();
+    applyTheme();
+    renderSettings();
+    return;
+  }
   if (action === "import-reading-book") importReadingBook();
   if (action === "load-references") loadReferenceData();
   const dictRow = event.target.closest("[data-dict-word]"); if (dictRow) { dictSelected = dictRow.dataset.dictWord; renderDict(); }
