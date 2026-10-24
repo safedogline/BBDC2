@@ -516,8 +516,7 @@ function buildChoice(word, bookId) {
   <h1 class="learn-word">${session.spelling ? "拼写测试" : listening ? "🎧 听音选义" : escapeHtml(word.word.split(" / ")[0])}</h1>
   ${!session.spelling && !listening && variants.length ? `<div class="word-variants">${variants.map(variant => `<span>${escapeHtml(variant)}</span>`).join("")}</div>` : ""}
   ${session.spelling ? `<div class="word-meaning spell-hint">${escapeHtml(meaningOf(word))}</div>` : ""}
-   ${session.choice && !session.spelling ? `<div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed ? "" : listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>` : ""}
-   ${session.choice && !session.spelling && !spellingResult ? renderChoice(word) : ""}
+   ${session.choice && !session.spelling ? `<div class="choice-stage"><div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed ? "" : listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>${!spellingResult ? renderChoice(word) : ""}</div>` : ""}
    ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
   ${session.choice && revealed && session.answerGrade === "again" && !spellingResult ? `<div class="choice-explain">${state.settings.confuseAnalyze ? "红色选项是刚才选错或容易混淆的释义，蓝色为正确释义。" : "已显示正确释义。"}</div>` : ""}
   ${panels}
