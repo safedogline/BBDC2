@@ -284,7 +284,6 @@ function applySidebar() {
 }
 function renderShell() {
   document.querySelectorAll(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === currentView));
-  document.getElementById("page-title").textContent = NAV_TITLES[currentView] || "今日学习";
   document.getElementById("review-nav-count").textContent = allDue();
   renderSidebarBooks();
   if (currentView === "home") renderHome();
@@ -534,6 +533,7 @@ function renderChoice() {
     if (locked) {
       if (option.correct) cls += " correct";
       else if (choice.selected === index) cls += " wrong";
+      else if (session.choiceInspect === index) cls += " inspect";
     }
     const showWord = locked && (option.correct || choice.selected === index || session.choiceInspect === index);
     return `<button class="${cls}" data-choice="${index}"><span class="choice-meaning">${escapeHtml(option.meaning)}</span><span class="choice-word">${showWord && option.word ? escapeHtml(option.word) : ""}</span></button>`;

@@ -207,6 +207,7 @@ body[data-font="serif"] .learn-word{font-weight:600}
 .choice-option:hover{border-color:var(--gold);background:var(--surface-3)}
 .choice-option.correct{border-color:var(--blue);background:var(--blue-soft);color:#cfe0ff}
 .choice-option.wrong{border-color:var(--red);background:var(--red-soft);color:#f2c9c9}
+.choice-option.inspect{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-2)}
 body[data-theme="light"] .choice-option.correct{color:#1d3f7a}
 body[data-theme="light"] .choice-option.wrong{color:#7c2b2b}
 .choice-word{font-weight:400;min-height:1.5em;color:inherit;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
