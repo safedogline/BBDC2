@@ -519,7 +519,7 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   .page-heading{flex-wrap:wrap}
   .breadcrumbs{min-width:0;overflow:hidden;white-space:nowrap}
   .top-actions{flex:0 0 auto}
-  .learn-card{padding:24px 18px 18px;height:auto;min-height:640px}
+  .learn-card{padding:18px 14px 14px;height:auto;min-height:500px}
   .learn-word{font-size:calc(32px + var(--global-font-size, 0px))}
   .answer-button{min-width:96px;padding:0 16px}
   .theme-grid{gap:8px}
@@ -539,4 +539,29 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   body[data-sidebar="collapsed"] .nav-count{display:inline-flex;font-size:calc(9px + var(--global-font-size, 0px));height:17px;min-width:17px;margin-left:0}
   body[data-sidebar="collapsed"] .nav-item{font-size:calc(10.5px + var(--global-font-size, 0px));gap:6px;justify-content:center;padding:0 9px;height:34px;width:auto}
   body[data-sidebar="collapsed"] .nav-icon{font-size:calc(13px + var(--global-font-size, 0px));width:auto}
+}
+@media(max-width:380px){
+  .view{padding:12px 8px 28px}
+  .learn-toolbar{gap:5px;margin-bottom:6px;font-size:10px}
+  .learn-card{padding:14px 10px 10px;border-radius:14px;min-height:0}
+  .learn-topline{align-items:flex-start;gap:5px;margin-top:2px}
+  .word-phonetic{font-size:10px}
+  .word-tools{gap:3px}
+  .word-tool,.like-pill{height:24px;padding:0 6px;font-size:9px}
+  .learn-card.recalling .learn-word,.learn-card.answered .learn-word{margin-top:10px}
+  .learn-word{font-size:calc(28px + var(--global-font-size, 0px));margin-bottom:2px}
+  .word-variants{gap:4px;margin-top:3px}
+  .word-variants span{padding:2px 5px;font-size:9px}
+  .word-meaning{margin-top:7px;font-size:calc(13px + var(--global-font-size, 0px));line-height:1.45}
+  .choice-stage{height:190px;min-height:190px}
+  .choice-prompt{height:15px;margin:8px 0 2px;line-height:15px;font-size:10px}
+  .choice-list{grid-template-rows:repeat(4,36px);gap:5px;margin-top:7px}
+  .choice-option{padding:7px 8px;border-radius:8px;font-size:calc(10.5px + var(--global-font-size, 0px));line-height:1.2}
+  .choice-option.long-meaning{grid-template-columns:minmax(0,1fr) minmax(70px,30%)}
+  .answer-actions{flex-basis:48px;height:48px;min-height:48px;gap:5px;padding-top:8px}
+  .answer-actions:has(.spell-box){flex-basis:88px;height:88px;min-height:88px}
+  .answer-button{min-width:76px;height:34px;padding:0 8px;font-size:11px;border-radius:8px}
+  .kbd-hint{font-size:9px;margin-top:7px}
+  .study-tabs{gap:1px;margin-top:10px}
+  .study-tab{padding:6px 5px;font-size:10px}
 }
