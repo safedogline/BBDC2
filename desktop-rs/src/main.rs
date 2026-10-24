@@ -31,8 +31,8 @@ extern "system" {
 }
 
 const APP_TITLE: &str = "IELTS 词汇";
-const MIN_WIDTH: f64 = 880.0;
-const MIN_HEIGHT: f64 = 620.0;
+const MIN_WIDTH: f64 = 350.0;
+const MIN_HEIGHT: f64 = 450.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 struct Bounds {

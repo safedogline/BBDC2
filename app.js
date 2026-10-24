@@ -516,14 +516,12 @@ function buildChoice(word, bookId) {
   <h1 class="learn-word">${session.spelling ? "拼写测试" : listening ? "🎧 听音选义" : escapeHtml(word.word.split(" / ")[0])}</h1>
   ${!session.spelling && !listening && variants.length ? `<div class="word-variants">${variants.map(variant => `<span>${escapeHtml(variant)}</span>`).join("")}</div>` : ""}
   ${session.spelling ? `<div class="word-meaning spell-hint">${escapeHtml(meaningOf(word))}</div>` : ""}
-   ${session.choice && !session.spelling ? `<div class="choice-stage"><div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed ? "" : listening ? "听发音，选择对应词义" : "先回想词义再选择，想不起来「看答案」"}</div>${!spellingResult ? renderChoice(word) : ""}</div>` : ""}
+   ${session.choice && !session.spelling ? `<div class="choice-stage"><div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed || !listening ? "" : "听发音，选择对应词义"}</div>${!spellingResult ? renderChoice(word) : ""}</div>` : ""}
    ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
-  ${session.choice && revealed && session.answerGrade === "again" && !spellingResult ? `<div class="choice-explain">${state.settings.confuseAnalyze ? "红色选项是刚才选错或容易混淆的释义，蓝色为正确释义。" : "已显示正确释义。"}</div>` : ""}
   ${panels}
   ${revealed && !session.choice ? `<div class="learn-audio-row"><button class="word-audio" data-action="material">学习材料</button></div>` : ""}
   <div class="answer-actions">${actions}</div>
   ${revealed && session.answerGrade === "unsure" ? '<div class="unsure-hint">模糊按“没记住”处理，这个词稍后会在本组再次出现。</div>' : ""}
-  <div class="kbd-hint">${session.spelling ? "拼写后按回车检查" : session.choice ? (revealed ? "继续进入下一个词" : "先回想，再选择词义") : revealed ? (session.answerGrade === "known" ? "下一词继续，或点记错了重新判定" : "下一词继续，这个词稍后会再次出现") : "先回想词义，再选择认识、模糊或不认识"}</div>
   </article></div>`;
   if (session.spelling) setTimeout(() => document.getElementById("spell-input")?.focus(), 30);
 }
