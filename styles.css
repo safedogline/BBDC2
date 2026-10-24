@@ -85,7 +85,7 @@ body[data-sidebar="collapsed"] .nav-item:hover::after{content:attr(data-label);p
 .icon-button:hover{color:var(--gold-2);border-color:var(--gold)}
 .offline-pill{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:20px;border:1px solid var(--line);background:var(--surface);color:var(--dim);font-size:10px}
 .heading-actions{display:flex;align-items:center;gap:10px}
-.view{display:none;padding:32px 36px 64px;max-width:1200px}
+.view{display:none;width:100%;max-width:1440px;margin-inline:auto;padding:32px 48px 64px}
 .view.active-view{display:block}
 .page-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:24px}
 .page-heading h1{font-size:26px;line-height:1.2;margin:3px 0 0;letter-spacing:-.01em}
@@ -471,6 +471,9 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   .listen-layout,.dict-layout{grid-template-columns:1fr}
   .dict-results{max-height:240px}
 }
+@media(min-width:1500px){
+  .view{padding-inline:64px}
+}
 @media(max-width:850px){
   .sidebar{width:200px}
   .main-area{margin-left:200px}
@@ -514,6 +517,7 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   .search-input{width:100%;flex:auto}
   .scope-controls{grid-template-columns:1fr 1fr}
   .scope-count{grid-column:1 / -1;justify-self:start}
+  .scope-select{width:100%;min-width:0}
   .book-management-row{grid-template-columns:1fr 64px;row-gap:4px}
   .brand-row{justify-content:space-between;margin:0 0 10px 4px}
   .sidebar-toggle{display:none}
