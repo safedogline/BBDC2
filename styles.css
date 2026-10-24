@@ -204,7 +204,8 @@ body[data-font="serif"] .learn-word{font-weight:600}
 .choice-option.wrong{border-color:var(--red);background:var(--red-soft);color:#f2c9c9}
 body[data-theme="light"] .choice-option.correct{color:#1d3f7a}
 body[data-theme="light"] .choice-option.wrong{color:#7c2b2b}
-.choice-word{font-weight:700;min-height:1.5em;color:var(--gold-2);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.choice-word{font-weight:700;min-height:1.5em;color:var(--gold-2);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.choice-option.long-meaning .choice-word{text-align:right}
 .choice-meaning{color:inherit;opacity:.92;min-width:0}
 .choice-option:not(.correct):not(.wrong) .choice-meaning{color:var(--muted)}
 .answer-actions{display:flex;gap:10px;margin-top:auto;padding-top:22px;justify-content:center}

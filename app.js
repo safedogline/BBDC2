@@ -315,13 +315,14 @@ function renderHome() {
   const percent = book.words.length ? Math.round((stats.learned + stats.known) * 100 / book.words.length) : 0;
   const fresh = book.words.length - stats.learned - stats.known;
   const categories = [...new Set(book.words.map(word => word.category).filter(Boolean))];
+  const scopedWords = wordsForScope(book, settings.vocabularyCategory);
   const scopeOptions = categories.map(category => `<option value="${escapeHtml(category)}" ${settings.vocabularyCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("");
   document.getElementById("view-home").innerHTML = `
     <div class="page-heading"><div><p class="eyebrow">${new Intl.DateTimeFormat("zh-CN", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</p><h1>今天，继续积累</h1></div><div class="date-label">本地学习记录</div></div>
     <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">今天累计</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
     <div class="section-heading"><h2>当前词书</h2><button class="quiet-link" data-view="words">管理词书 →</button></div>
     <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="start-new" ${fresh === 0 && !session ? "disabled" : ""}>${session?.mode === "new" ? "继续学习" : "开始学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
-    <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(book.words.length).length}" value="${Math.min(settings.vocabularyStart || 1, book.words.length)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="-1" aria-label="减少起始词">−</button><button type="button" data-step="1" aria-label="增加起始词">+</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(book.words[Math.min(settings.vocabularyStart || 1, book.words.length) - 1]?.word || "超出词书范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">共 ${book.words.length} 个词条</span></div></section>
+     <section class="study-panel scope-panel"><div class="study-panel-header"><span>新词范围</span><span class="pill">仅影响待学新词</span></div><div class="scope-controls"><label>从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(scopedWords.length || 1).length}" value="${Math.min(settings.vocabularyStart || 1, scopedWords.length || 1)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="-1" aria-label="减少起始词">−</button><button type="button" data-step="1" aria-label="增加起始词">+</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(scopedWords[Math.min(settings.vocabularyStart || 1, scopedWords.length || 1) - 1]?.word || "超出主题范围")}</span></label><label>主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">${settings.vocabularyCategory === "all" ? "共" : "主题内共"} ${scopedWords.length} 个词条</span></div></section>
     <div class="study-layout"><section class="study-panel"><div class="study-panel-header"><span>签到日历</span><span class="pill">连续 ${streakDays()} 天</span></div>${renderCalendar()}<button class="secondary-button full-button" data-action="checkin">${state.checkins.includes(todayKey()) ? "今日已签到" : "今日签到"}</button></section><section class="study-panel"><div class="study-panel-header"><span>快捷入口</span></div><div class="quick-actions"><button class="quick-action" data-view="listen"><span class="quick-action-icon">♫</span><span><strong>随身听</strong><small>${book.words.length} 个词条</small></span></button><button class="quick-action" data-view="dict"><span class="quick-action-icon">⌕</span><span><strong>词典</strong><small>查词与例句</small></span></button><button class="quick-action" data-view="sentences"><span class="quick-action-icon">¶</span><span><strong>句库</strong><small>${state.favoriteSentences.length} 条例句</small></span></button><button class="quick-action" data-action="open-favorites"><span class="quick-action-icon">☆</span><span><strong>生词本</strong><small>${state.favoriteWords.length} 个收藏</small></span></button><button class="quick-action" id="backup-button"><span class="quick-action-icon">⇩</span><span><strong>导出备份</strong><small>词书与进度 JSON</small></span></button></div></section></div>
     <section class="recent-section"><div class="section-heading"><h2>最近学习</h2><button class="quiet-link" data-view="words">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>单词</th><th>释义</th><th>状态</th></tr></thead><tbody>${recentRows(book)}</tbody></table></div></section>`;
 }
@@ -381,6 +382,9 @@ function meaningOf(word) {
   if (meaning.toLowerCase().startsWith(pos.toLowerCase())) return meaning;
   return `${pos}${pos.endsWith(".") ? "" : "."} ${meaning}`;
 }
+function wordsForScope(book, category = "all") {
+  return book?.words.filter(word => category === "all" || word.category === category) || [];
+}
 function startSession(mode) {
   if (session?.queue?.length) {
     currentBookId = session.sourceBookId || session.bookId || currentBookId;
@@ -397,9 +401,9 @@ function startSession(mode) {
   else {
     const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
     const category = state.settings.vocabularyCategory || "all";
-    words = book.words.filter((word, index) => {
+    words = wordsForScope(book, category).filter((word, index) => {
       const record = getRecord(book.id, word);
-      return index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
+      return index + 1 >= start && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
     }).slice(0, state.settings.groupSize || 20);
   }
   if (mode === "review" && !words.length) words = state.books.flatMap(source => dueWords(source.id).map(entry => ({ ...entry.word, _bookId: source.id }))).slice(0, state.settings.reviewChunk || 100);
@@ -418,12 +422,13 @@ function syncVocabularyStart(book) {
   if (!book || book.id !== IELTS_BOOK_ID) return;
   const category = state.settings.vocabularyCategory || "all";
   const start = Math.max(1, Number(state.settings.vocabularyStart) || 1);
-  const next = book.words.findIndex((word, index) => {
+  const scopedWords = wordsForScope(book, category);
+  const next = scopedWords.findIndex((word, index) => {
     const record = getRecord(book.id, word);
-    return index + 1 >= start && (category === "all" || word.category === category) && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
+    return index + 1 >= start && !isKnown(word, book.id) && !record.introducedAt && record.box === 0 && record.seen === 0;
   });
   if (next >= 0) state.settings.vocabularyStart = next + 1;
-  else state.settings.vocabularyStart = book.words.length;
+  else state.settings.vocabularyStart = scopedWords.length || 1;
 }
 function currentSessionWord() { return session?.queue?.[0]?.word || null; }
 function prepareWord() {
@@ -526,7 +531,7 @@ function renderChoice() {
   const choice = session.choice;
   const locked = choice.selected != null;
   return `<div class="choice-list">${choice.options.map((option, index) => {
-    let cls = "choice-option";
+    let cls = `choice-option ${String(option.meaning || "").length > 22 ? "long-meaning" : ""}`;
     if (locked) {
       if (option.correct) cls += " correct";
       else if (choice.selected === index) cls += " wrong";
@@ -1216,8 +1221,9 @@ function updateScopeWordPreview(input) {
   if (!book) return;
   const value = String(input.value).replace(/\D/g, "");
   if (input.value !== value) input.value = value;
-  const index = Math.max(1, Math.min(book.words.length, Number(value) || 1)) - 1;
-  const word = book.words[index];
+  const scopedWords = wordsForScope(book, state.settings.vocabularyCategory || "all");
+  const index = Math.max(1, Math.min(scopedWords.length || 1, Number(value) || 1)) - 1;
+  const word = scopedWords[index];
   const preview = document.getElementById("scope-word-preview");
   if (preview) preview.textContent = word ? `${word.word}${word.category ? ` · ${word.category}` : ""}` : "超出词书范围";
 }
@@ -1225,7 +1231,17 @@ document.addEventListener("change", event => {
   const scope = event.target.closest("[data-scope]");
   if (scope) {
     const key = scope.dataset.scope;
-    state.settings[key] = key === "vocabularyStart" ? Math.max(1, Math.min(currentBook()?.words.length || 1, Number(scope.value) || 1)) : scope.value;
+    if (key === "vocabularyCategory") {
+      state.settings.vocabularyCategory = scope.value;
+      state.settings.vocabularyStart = 1;
+      persist();
+      renderHome();
+      toast("主题已切换，起始词已回到该主题第 1 个词");
+      event.stopPropagation();
+      return;
+    }
+    const scopedWords = wordsForScope(currentBook(), state.settings.vocabularyCategory || "all");
+    state.settings[key] = Math.max(1, Math.min(scopedWords.length || 1, Number(scope.value) || 1));
     persist();
     if (key === "vocabularyStart") {
       scope.value = state.settings[key];
