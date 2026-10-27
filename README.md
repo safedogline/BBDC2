@@ -38,21 +38,86 @@ VocabLearn 是一个本地优先的 IELTS 英语词汇学习应用，面向桌�
 
 ![350×450 小窗学习界面](docs/screenshots/compact-study-350x450.png)
 
+## 安装环境
+
+项目本身是纯静态资源，不需要编译。运行只需要一个静态文件服务器。
+
+### 方式一：用 Node.js（推荐）
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install -y nodejs npm
+
+# 检查版本（需要 Node.js 18 以上）
+node -v
+npm -v
+```
+
+首次运行 `./VocabLearn --start` 时，`npx` 会自动下载 `http-server`，无需手动安装。想预先装好可以执行：
+
+```bash
+sudo npm install -g http-server
+```
+
+### 方式二：用 Python（不装 Node.js）
+
+任意安装了 Python 3 的系统都可以：
+
+```bash
+# Debian / Ubuntu 一般已自带，缺少时安装
+sudo apt install -y python3
+
+# 在项目根目录启动
+python3 -m http.server 4173 --bind 127.0.0.1
+```
+
+然后浏览器打开 `http://127.0.0.1:4173`。
+
+### 方式三：编译桌面版（可选，仅 Linux / Windows 本地开发）
+
+桌面版提供原生窗口和本地 SQLite 存储，需要 Rust 工具链：
+
+```bash
+# 安装 Rust（官方脚本）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+
+# 编译
+cd desktop-rs
+cargo build --release
+```
+
+Linux 还需要窗口和 WebKit 依赖：
+
+```bash
+sudo apt install -y build-essential pkg-config \
+  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+```
+
+编译产物在 `desktop-rs/target/release/`，不会提交到仓库。
+
 ## 运行
 
-项目是一个无需构建步骤的静态 Web 应用。可以使用任意静态文件服务器启动：
-
 ```bash
-./VocabLearn --start
+./VocabLearn --start          # 后台启动，默认 http://127.0.0.1:4173
+./VocabLearn --stop           # 停止服务
+VOCABLEARN_PORT=4180 ./VocabLearn --start   # 换端口
 ```
 
-默认地址为 `http://127.0.0.1:4173`。停止服务：
+日志位于 `~/.local/state/vocablearn/server.log`。
+
+也可以直接使用任意静态服务器打开项目根目录：
 
 ```bash
-./VocabLearn --stop
+npx http-server . -p 4173 -c-1
 ```
 
-也可以直接使用其他静态服务器打开项目根目录。浏览器需要通过 HTTP 服务加载本地词库模块和音频资源。
+浏览器需要通过 HTTP 服务加载本地词库模块和音频资源，直接双击 `index.html`（`file://` 协议）会因为模块跨域限制而无法加载词库。
+
+### 依赖缺失时
+
+启动脚本会自动检测依赖。缺少 `curl` 或静态服务器时会直接给出安装命令，不会静默失败。
 
 ## 目录结构
 
@@ -89,4 +154,4 @@ node --check app.js
 git diff --check
 ```
 
-桌面端构建需要 Rust 工具链和 Cargo。
+桌面版编译方式见上文「方式三」。仓库不包含任何预编译二进制文件（`.exe`、`.msi`、`.AppImage` 等），首次使用请按「安装环境」自行准备运行环境。

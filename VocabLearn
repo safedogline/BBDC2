@@ -7,7 +7,37 @@ LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/vocablearn/server.log"
 PORT="${VOCABLEARN_PORT:-4173}"
 URL="http://127.0.0.1:${PORT}"
 
-mkdir -p "$(dirname "$LOG_FILE")"
+die() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+check_deps() {
+  command -v curl >/dev/null 2>&1 || die "缺少 curl，请先安装：sudo apt install curl"
+
+  if command -v http-server >/dev/null 2>&1; then
+    SERVER_CMD="http-server"
+    return 0
+  fi
+
+  if command -v npx >/dev/null 2>&1; then
+    SERVER_CMD="npx --yes http-server"
+    return 0
+  fi
+
+  cat >&2 <<'EOF'
+缺少静态文件服务器，任选一种方式安装：
+
+  方式一（推荐，装 Node.js 后自带 npx）：
+    sudo apt install -y nodejs npm
+
+  方式二（直接用 Python，无需 Node.js）：
+    在本项目根目录执行：python3 -m http.server 4173 --bind 127.0.0.1
+
+安装 Node.js 后重新运行：./VocabLearn --start
+EOF
+  exit 1
+}
 
 running_pid() {
   if [ -f "$PID_FILE" ]; then
@@ -29,15 +59,19 @@ start_server() {
 
   if curl -fsS --max-time 1 "$URL/" >/dev/null 2>&1; then
     printf '端口 %s 已被其他服务占用，未启动 VocabLearn\n' "$PORT" >&2
+    printf '可换个端口重试：VOCABLEARN_PORT=4180 ./VocabLearn --start\n' >&2
     return 1
   fi
 
+  check_deps
+  mkdir -p "$(dirname "$LOG_FILE")"
+
   cd "$APP_DIR" || exit 1
-  nohup setsid npx http-server . -p "$PORT" -c-1 >>"$LOG_FILE" 2>&1 &
+  nohup setsid $SERVER_CMD . -p "$PORT" -c-1 >>"$LOG_FILE" 2>&1 &
   pid=$!
   printf '%s\n' "$pid" > "$PID_FILE"
 
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+  for _ in $(seq 1 30); do
     if curl -fsS --max-time 1 "$URL/" >/dev/null 2>&1; then
       printf 'VocabLearn 已启动，地址 %s，PID %s\n' "$URL" "$pid"
       return 0
@@ -57,7 +91,7 @@ stop_server() {
   fi
 
   kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in $(seq 1 10); do
     if ! kill -0 "$pid" 2>/dev/null; then
       rm -f "$PID_FILE"
       printf 'VocabLearn 已停止\n'
@@ -79,7 +113,8 @@ case "${1:-}" in
     stop_server
     ;;
   *)
-    printf '用法: VocabLearn -S 启动后台服务；VocabLearn -D 停止服务\n' >&2
+    printf '用法: ./VocabLearn --start 启动；./VocabLearn --stop 停止\n' >&2
+    printf '换端口: VOCABLEARN_PORT=4180 ./VocabLearn --start\n' >&2
     exit 2
     ;;
 esac
