@@ -126,6 +126,7 @@ async function loadIeltsBook(attempt = 0) {
       partOfSpeech: item.pos || "",
       example: item.example || "",
       exampleTranslation: item.translation || item.exampleTranslation || "",
+      syllables: item.syllables || item.syllable || "",
       extra: item.extra && item.extra !== "-" ? item.extra : "",
       category,
       groupNumber: groupIndex + 1,
@@ -338,7 +339,7 @@ function parseImport(text, fileName) {
 function normalizeWord(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return null;
   const get = (...keys) => { for (const key of keys) if (item[key] != null && String(item[key]).trim()) return String(item[key]).trim(); return ""; };
-  return { word: get("word", "term", "headword", "单词", "词条", "英文"), meaning: get("meaning", "definition", "translation", "释义", "中文", "意思"), example: get("example", "sentence", "例句"), exampleTranslation: get("exampleTranslation", "example_translation", "translationExample", "例句翻译"), translation: get("meaning", "definition", "translation", "释义", "中文", "意思"), phonetic: get("phonetic", "pronunciation", "音标"), audio: get("audio", "audioUrl", "audio_url", "发音"), category: get("category", "group", "unit", "分类", "单元") };
+  return { word: get("word", "term", "headword", "单词", "词条", "英文"), meaning: get("meaning", "definition", "translation", "释义", "中文", "意思"), example: get("example", "sentence", "例句"), exampleTranslation: get("exampleTranslation", "example_translation", "translationExample", "例句翻译"), syllables: get("syllables", "syllable", "音节"), translation: get("meaning", "definition", "translation", "释义", "中文", "意思"), phonetic: get("phonetic", "pronunciation", "音标"), audio: get("audio", "audioUrl", "audio_url", "发音"), category: get("category", "group", "unit", "分类", "单元") };
 }
 function applyTheme() {
   const theme = state.settings.followSystem ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "deep" : "light") : state.settings.theme;
@@ -455,6 +456,55 @@ function meaningOf(word) {
   if (!pos) return meaning;
   if (meaning.toLowerCase().startsWith(pos.toLowerCase())) return meaning;
   return `${pos}${pos.endsWith(".") ? "" : "."} ${meaning}`;
+}
+const SYLLABLE_OVERRIDES = {
+  atmosphere: "at·mos·phere",
+  abundant: "a·bun·dant",
+  accomplish: "ac·com·plish",
+  accommodation: "ac·com·mo·da·tion",
+  environment: "en·vi·ron·ment",
+  important: "im·por·tant",
+  opportunity: "op·por·tu·ni·ty",
+  organization: "or·gan·i·za·tion",
+  pronunciation: "pro·nun·ci·a·tion",
+  communication: "com·mu·ni·ca·tion",
+  information: "in·for·ma·tion",
+  international: "in·ter·na·tion·al",
+  significant: "sig·nif·i·cant",
+  technology: "tech·nol·o·gy",
+  understand: "un·der·stand",
+  rational: "ra·tion·al",
+  syllable: "syl·la·ble",
+  division: "di·vi·sion",
+  dictionary: "dic·tion·ar·y",
+  education: "ed·u·ca·tion",
+  vocabulary: "vo·cab·u·lar·y",
+};
+function syllableDisplay(word) {
+  const base = String(word?.word || "").split(" / ")[0].toLowerCase().trim();
+  if (SYLLABLE_OVERRIDES[base]) return SYLLABLE_OVERRIDES[base];
+  if (word?.syllables) return String(word.syllables).replace(/[.-]/g, "·");
+  if (!/^[a-z]+$/.test(base) || base.length < 5) return base;
+
+  const parts = [];
+  let start = 0;
+  const nuclei = [...base.matchAll(/[aeiouy]+/g)].map(match => [match.index, match.index + match[0].length]);
+  for (let index = 0; index < nuclei.length - 1; index++) {
+    const [end] = nuclei[index];
+    const [nextStart] = nuclei[index + 1];
+    const between = base.slice(nuclei[index][1], nextStart);
+    if (!between.length) continue;
+    let boundary = nextStart;
+    if (between.length === 1) boundary = nextStart;
+    else if (/^(ch|sh|th|ph|wh|ck|ng|qu)/.test(between)) boundary = nextStart - Math.min(2, between.length - 1);
+    else boundary = nextStart - 1;
+    if (boundary > start && boundary < base.length) {
+      parts.push(base.slice(start, boundary));
+      start = boundary;
+    }
+  }
+  parts.push(base.slice(start));
+  return parts.length > 1 ? parts.join("·") : base;
 }
 function wordsForScope(book, category = "all") {
   return book?.words.filter(word => category === "all" || word.category === category) || [];
@@ -580,24 +630,41 @@ function buildChoice(word, bookId) {
     ? `<div class="spell-box"><input id="spell-input" class="spell-input" autocomplete="off" autocapitalize="off" placeholder="输入拼写，回车检查"><div class="spell-actions"><button class="answer-button again" data-action="cancel-spell">取消</button><button class="answer-button known" data-action="check-spell">检查</button></div></div>`
     : revealed
       ? (session.choice
-        ? `<button class="answer-button known" data-action="continue">继续</button>`
-        : `<button class="answer-button known" data-action="continue">下一词</button>${session.answerGrade === "known" ? '<button class="answer-button again" data-action="undo">记错了</button>' : ""}`)
+        ? `<button class="answer-button known action-right" data-action="continue">继续</button>`
+        : `<button class="answer-button again action-left" data-action="undo">记错了</button><button class="answer-button known action-right" data-action="continue">下一词</button>`)
       : (session.choice
-        ? `<button class="answer-button again" data-action="reveal">看答案</button>`
-        : `<button class="answer-button again" data-grade="again">不认识</button><button class="answer-button unsure" data-grade="unsure">模糊</button><button class="answer-button known" data-grade="known">认识</button>`);
+        ? `<button class="answer-button known action-right" data-action="reveal">看答案</button>`
+        : `<button class="answer-button again action-left" data-grade="again">不认识</button><button class="answer-button unsure action-center" data-grade="unsure">模糊</button><button class="answer-button known action-right" data-grade="known">认识</button>`);
+  const displayWord = session.choice && revealed ? syllableDisplay(word) : word.word.split(" / ")[0];
   root.innerHTML = `<div class="learn-layout"><div class="learn-toolbar"><button data-action="exit-session">← 返回</button><span>${session.mode === "review" ? "复习" : "新词学习"} · ${Math.min(session.completed + 1, total)} / ${total}${entry.streak ? ` · 连对 ${entry.streak}/${session.required}` : ""}</span><span>${total - session.completed} 剩余</span></div>
    <article class="learn-card ${revealed ? "answered" : "recalling"}"><div class="learn-progress"><span style="width:${progress}%"></span></div>
   <div class="learn-topline"><span class="word-phonetic">${phoneticOf(word) ? `<span class="accent-tag">${accentLabel()}</span>${escapeHtml(phoneticOf(word))}` : escapeHtml(word.partOfSpeech || "")}</span><div class="word-tools"><button class="word-tool" data-action="play-audio">▶ 发音</button><button class="word-tool ${state.favoriteWords.includes(recordKey(bookId, word)) ? "active" : ""}" data-action="fav-word">☆ ${state.favoriteWords.includes(recordKey(bookId, word)) ? "已收藏" : "收藏"}</button>${state.settings.spellHint ? '<button class="word-tool" data-action="spell">abc 拼写</button>' : ""}<button class="word-tool ${isKnown(word, bookId) ? "active" : ""}" data-action="known">${isKnown(word, bookId) ? "已标熟" : "标熟"}</button><button class="like-pill" data-action="like">👍 ${likeCount(word, bookId)}</button></div></div>
-  <h1 class="learn-word">${session.spelling ? "拼写测试" : listening ? "🎧 听音选义" : escapeHtml(word.word.split(" / ")[0])}</h1>
+   <h1 class="learn-word">${session.spelling ? "拼写测试" : listening ? "🎧 听音选义" : escapeHtml(displayWord)}</h1>
   ${!session.spelling && !listening && variants.length ? `<div class="word-variants">${variants.map(variant => `<span>${escapeHtml(variant)}</span>`).join("")}</div>` : ""}
   ${session.spelling ? `<div class="word-meaning spell-hint">${escapeHtml(meaningOf(word))}</div>` : ""}
    ${session.choice && !session.spelling ? `<div class="choice-stage"><div class="choice-prompt" ${revealed ? 'aria-hidden="true"' : ""}>${revealed || !listening ? "" : "听发音，选择对应词义"}</div>${!spellingResult ? renderChoice(word) : ""}</div>` : ""}
    ${(!session.choice || spellingResult) && revealed ? `<div class="word-meaning">${escapeHtml(meaningOf(word))}</div>` : ""}
   ${panels}
   <div class="answer-actions">${actions}</div>
-  ${revealed && session.answerGrade === "unsure" ? '<div class="unsure-hint">模糊按“没记住”处理，这个词稍后会在本组再次出现。</div>' : ""}
-  </article></div>`;
-  if (session.spelling) setTimeout(() => document.getElementById("spell-input")?.focus(), 30);
+   ${revealed && session.answerGrade === "unsure" ? '<div class="unsure-hint">模糊按“没记住”处理，这个词稍后会在本组再次出现。</div>' : ""}
+   </article></div>`;
+   normalizeChoiceHeights();
+   if (session.spelling) setTimeout(() => document.getElementById("spell-input")?.focus(), 30);
+ }
+function normalizeChoiceHeights() {
+  const list = document.querySelector(".choice-list");
+  if (!list) return;
+  list.style.removeProperty("--choice-row-height");
+  requestAnimationFrame(() => {
+    const options = [...list.querySelectorAll(".choice-option")];
+    if (!options.length) return;
+    const rowHeight = Math.max(48, ...options.map(option => {
+      const content = option.querySelector(".choice-meaning");
+      const style = getComputedStyle(option);
+      return content.getBoundingClientRect().height + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2;
+    }));
+    list.style.setProperty("--choice-row-height", `${rowHeight}px`);
+  });
 }
 function renderChoice() {
   if (!session?.choice) return "";
@@ -812,7 +879,9 @@ function inspectChoice(index) {
   if (!session.choice.options[index]) return;
   if (index === session.choice.selected || session.choice.options[index].correct) return;
   const inspected = Array.isArray(session.choiceInspect) ? session.choiceInspect : (session.choiceInspect = []);
-  if (!inspected.includes(index) && inspected.length < 2) inspected.push(index);
+  const selectedCorrect = session.choice.selected >= 0 && session.choice.options[session.choice.selected]?.correct;
+  const inspectLimit = selectedCorrect ? 3 : 2;
+  if (!inspected.includes(index) && inspected.length < inspectLimit) inspected.push(index);
   persist();
   renderSession();
 }
@@ -1290,6 +1359,7 @@ document.addEventListener("click", event => {
     persist();
     applyTheme();
     renderSettings();
+    normalizeChoiceHeights();
     return;
   }
   if (action === "import-reading-book") importReadingBook();
@@ -1382,9 +1452,25 @@ document.addEventListener("keydown", event => {
   }
   if (event.target.id === "spell-input" && event.key === "Enter") { event.preventDefault(); document.querySelector('[data-action="check-spell"]')?.click(); return; }
   if (!session || document.querySelector("dialog[open]")) return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    if (session.answered) document.querySelector('[data-action="undo"]')?.click();
+    else if (!session.choice) document.querySelector('[data-grade="again"]')?.click();
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (!session.answered && !session.choice) document.querySelector('[data-grade="unsure"]')?.click();
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    if (session.answered) document.querySelector('[data-action="continue"]')?.click();
+    else if (!session.choice) document.querySelector('[data-grade="known"]')?.click();
+    return;
+  }
   if (event.code === "Space") { event.preventDefault(); if (session.answered) continueWord(); else if (session.choice) revealAnswer(); else gradeWord("unsure"); }
-  if (!session.answered && !session.choice) { if (event.key === "ArrowLeft") gradeWord("again"); if (event.key === "ArrowDown") gradeWord("unsure"); if (event.key === "ArrowRight") gradeWord("known"); }
-  if (!session.answered && session.choice) { const index = Number(event.key) - 1; if (index >= 0 && index <= 3) chooseOption(index); }
+  if (!session.answered && session.choice && /^[1-4]$/.test(event.key)) { event.preventDefault(); chooseOption(Number(event.key) - 1); }
   if (event.key === "Escape") exitSession();
 });
 applyTheme();
