@@ -19,3 +19,9 @@ app-session-logcat*.txt
 .DS_Store
 Thumbs.db
 *~
+
+# Android device debug dumps (uiautomator XML + screenshots) from third-party app
+bbdc-*.xml
+bbdc-*.png
+vocablearn-*.xml
+vocablearn-*.png
