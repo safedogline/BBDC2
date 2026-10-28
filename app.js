@@ -484,7 +484,6 @@ async function loadSyllables() {
     if (session) renderSession();
   } catch (error) { /* syllable data is optional */ }
 }
-
 function meaningOf(word) {
   const pos = String(word.partOfSpeech || "").trim();
   const meaning = String(word.meaning || "暂无释义").trim();
@@ -492,65 +491,11 @@ function meaningOf(word) {
   if (meaning.toLowerCase().startsWith(pos.toLowerCase())) return meaning;
   return `${pos}${pos.endsWith(".") ? "" : "."} ${meaning}`;
 }
-const SYLLABLE_OVERRIDES = {
-  mysterious: "mys·te·ri·ous",
-  curious: "cu·ri·ous",
-  various: "var·i·ous",
-  serious: "se·ri·ous",
-  obvious: "ob·vi·ous",
-  delicious: "de·li·cious",
-  precious: "pre·cious",
-  previous: "pre·vi·ous",
-  glorious: "glo·ri·ous",
-  furious: "fu·ri·ous",
-  atmosphere: "at·mos·phere",
-  abundant: "a·bun·dant",
-  accomplish: "ac·com·plish",
-  accommodation: "ac·com·mo·da·tion",
-  environment: "en·vi·ron·ment",
-  important: "im·por·tant",
-  opportunity: "op·por·tu·ni·ty",
-  organization: "or·gan·i·za·tion",
-  pronunciation: "pro·nun·ci·a·tion",
-  communication: "com·mu·ni·ca·tion",
-  information: "in·for·ma·tion",
-  international: "in·ter·na·tion·al",
-  significant: "sig·nif·i·cant",
-  technology: "tech·nol·o·gy",
-  understand: "un·der·stand",
-  rational: "ra·tion·al",
-  syllable: "syl·la·ble",
-  division: "di·vi·sion",
-  dictionary: "dic·tion·ar·y",
-  education: "ed·u·ca·tion",
-  vocabulary: "vo·cab·u·lar·y",
-};
 function syllableDisplay(word) {
   const base = String(word?.word || "").split(" / ")[0].toLowerCase().trim();
-  if (SYLLABLE_OVERRIDES[base]) return SYLLABLE_OVERRIDES[base];
   if (word?.syllables) return String(word.syllables).replace(/[.-]/g, "·");
   if (syllablesMap[base]) return syllablesMap[base];
-  if (!/^[a-z]+$/.test(base) || base.length < 5) return base;
-
-  const parts = [];
-  let start = 0;
-  const nuclei = [...base.matchAll(/[aeiouy]+/g)].map(match => [match.index, match.index + match[0].length]);
-  for (let index = 0; index < nuclei.length - 1; index++) {
-    const [end] = nuclei[index];
-    const [nextStart] = nuclei[index + 1];
-    const between = base.slice(nuclei[index][1], nextStart);
-    if (!between.length) continue;
-    let boundary = nextStart;
-    if (between.length === 1) boundary = nextStart;
-    else if (/^(ch|sh|th|ph|wh|ck|ng|qu)/.test(between)) boundary = nextStart - Math.min(2, between.length - 1);
-    else boundary = nextStart - 1;
-    if (boundary > start && boundary < base.length) {
-      parts.push(base.slice(start, boundary));
-      start = boundary;
-    }
-  }
-  parts.push(base.slice(start));
-  return parts.length > 1 ? parts.join("·") : base;
+  return base;
 }
 function wordsForScope(book, category = "all") {
   return book?.words.filter(word => category === "all" || word.category === category) || [];
