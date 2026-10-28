@@ -140,7 +140,3 @@ JSON 可以是纯数组，也可以是带 `name` 和 `words` 的对象。除了�
 node --check app.js
 git diff --check
 ```
-
-## 说明
-
-词库素材来自公开的雅思词汇资料，发音音频仅供个人学习使用，没有随仓库分发——`ielts/public/vocabulary/audio/` 已被忽略，需要的话自己按词表补一份。
