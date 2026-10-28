@@ -159,10 +159,10 @@ tbody tr:last-child td{border-bottom:0}
 tbody tr:hover td{background:var(--surface-2)}
 .word-state{display:inline-flex;align-items:center;height:21px;padding:0 8px;border-radius:20px;background:var(--surface-2);color:var(--muted);font-size:calc(10px + var(--global-font-size, 0px));white-space:nowrap}
 .row-actions{display:flex;gap:6px;flex-wrap:wrap}
-.row-actions button{height:23px;padding:0 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--muted);font-size:calc(10px + var(--global-font-size, 0px))}
+.row-actions button{min-height:26px;height:auto;padding:4px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--muted);font-size:calc(10px + var(--global-font-size, 0px));line-height:1.25;white-space:normal}
 .row-actions button:hover{color:var(--gold-2);border-color:var(--gold)}
 .table-word{display:inline-flex;align-items:center;gap:7px}
-.audio-mini{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);color:var(--gold-2);font-size:calc(10px + var(--global-font-size, 0px));display:grid;place-items:center;padding:0}
+.audio-mini{width:24px;height:24px;min-width:24px;min-height:24px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);color:var(--gold-2);font-size:calc(10px + var(--global-font-size, 0px));display:grid;place-items:center;padding:0;line-height:1}
 
 /* ---------- learning card ---------- */
 .learn-layout{max-width:680px;margin:0 auto}
@@ -346,9 +346,9 @@ body[data-theme="light"] .answer-button.again{color:#7c2b2b}
 /* ---------- settings / appearance ---------- */
 .settings-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px 18px;margin-bottom:14px}
 .scope-panel{margin:14px 0}
-.scope-controls{display:grid;grid-template-columns:minmax(150px,190px) minmax(150px,190px) minmax(72px,1fr) auto;align-items:end;gap:10px}
-.scope-controls label{display:grid;gap:6px;color:var(--muted);font-size:calc(11px + var(--global-font-size, 0px));min-width:0}
-.number-stepper{width:180px;height:36px;display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);overflow:hidden}
+.scope-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:12px 14px}
+.scope-controls label{display:grid;grid-template-rows:auto 38px minmax(16px,auto);align-content:start;gap:6px;color:var(--muted);font-size:calc(11px + var(--global-font-size, 0px));min-width:0}
+.number-stepper{width:100%;height:38px;display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);overflow:hidden}
 .number-stepper:focus-within{border-color:var(--gold)}
 .number-stepper input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text);padding:0 10px;font-size:calc(12px + var(--global-font-size, 0px));appearance:textfield;-moz-appearance:textfield}
 .number-stepper input::-webkit-inner-spin-button,.number-stepper input::-webkit-outer-spin-button{appearance:none;margin:0}
@@ -356,9 +356,9 @@ body[data-theme="light"] .answer-button.again{color:#7c2b2b}
 .stepper-buttons{display:grid;grid-template-rows:1fr 1fr;border-left:1px solid var(--line)}
 .stepper-buttons button{width:30px;border:0;background:transparent;color:var(--muted);font-size:calc(12px + var(--global-font-size, 0px));line-height:1}
 .stepper-buttons button:hover{background:var(--surface);color:var(--gold-2)}
-.scope-select{width:100%;height:36px;border-radius:8px;padding:0 30px 0 10px;cursor:pointer}
-.scope-count{align-self:center;padding:0;color:var(--dim);font-size:calc(11px + var(--global-font-size, 0px))}
-.scope-start-button{min-width:112px;align-self:center}
+.scope-select{width:100%;height:38px;min-height:38px;border-radius:8px;padding:0 30px 0 10px;cursor:pointer}
+.scope-count{grid-column:1;align-self:stretch;display:flex;align-items:center;padding:0 2px;color:var(--dim);font-size:calc(11px + var(--global-font-size, 0px));line-height:1.4}
+.scope-start-button{grid-column:2;width:100%;min-width:0;min-height:40px;height:auto;align-self:stretch;justify-self:stretch;padding:7px 12px;line-height:1.35;white-space:normal}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
 .settings-row:last-child{border-bottom:0}
 .settings-row strong{display:block;font-size:calc(12.5px + var(--global-font-size, 0px));font-weight:600}
@@ -528,9 +528,7 @@ dialog::backdrop{background:rgba(4,5,8,.62);backdrop-filter:blur(3px)}
   .theme-preview{height:72px}
   .filters{flex-wrap:wrap}
   .search-input{width:100%;flex:auto}
-  .scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
-  .scope-count{grid-column:1;justify-self:start;padding:0 0 0 2px}
-  .scope-start-button{grid-column:2;justify-self:end}
+  .scope-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .scope-select{width:100%;min-width:0}
   .book-management-row{grid-template-columns:1fr 64px;row-gap:4px}
   .sidebar-toggle{display:none}

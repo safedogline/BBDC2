@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
   confuseAnalyze: true,
   listeningQuiz: false,
   reminder: true,
-  theme: "deep",
+  theme: "light",
   fontStyle: "sans",
   followSystem: false,
   mnemonicOrder: ["phrase", "variant", "root", "derive", "note", "synonym"],
@@ -1466,6 +1466,7 @@ document.addEventListener("keydown", event => {
   if (event.key === "ArrowRight") {
     event.preventDefault();
     if (session.answered) document.querySelector('[data-action="continue"]')?.click();
+    else if (session.choice) document.querySelector('[data-action="reveal"]')?.click();
     else if (!session.choice) document.querySelector('[data-grade="known"]')?.click();
     return;
   }
