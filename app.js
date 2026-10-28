@@ -17,11 +17,30 @@ const DEFAULT_SETTINGS = {
   splitMnemonic: true,
   confuseAnalyze: true,
   listeningQuiz: false,
+  showSyllableMarks: true,
   reminder: true,
   theme: "light",
+  chineseFont: "noto-sans",
+  englishFont: "arial",
   fontStyle: "sans",
   followSystem: false,
   mnemonicOrder: ["phrase", "variant", "root", "derive", "note", "synonym"],
+};
+const FONT_OPTIONS = {
+  chinese: {
+    "noto-sans": { label: "思源黑体 / 微软雅黑", local: ["Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "微软雅黑", "PingFang SC"] },
+    "yahei": { label: "微软雅黑", local: ["Microsoft YaHei", "微软雅黑", "Noto Sans CJK SC", "PingFang SC"] },
+    "noto-serif": { label: "思源宋体 / 宋体", local: ["Noto Serif CJK SC", "Source Han Serif SC", "SimSun", "宋体", "Songti SC"] },
+    "songti": { label: "宋体", local: ["SimSun", "宋体", "Songti SC", "Noto Serif CJK SC"] },
+    "kaiti": { label: "楷体", local: ["KaiTi", "楷体", "STKaiti", "Noto Serif CJK SC"] },
+  },
+  english: {
+    "arial": { label: "Arial", local: ["Arial", "Liberation Sans"] },
+    "times-new-roman": { label: "Times New Roman", local: ["Times New Roman", "Liberation Serif"] },
+    "georgia": { label: "Georgia", local: ["Georgia", "Liberation Serif"] },
+    "verdana": { label: "Verdana", local: ["Verdana", "DejaVu Sans"] },
+    "inter": { label: "Inter", local: ["Inter", "Segoe UI", "Arial"] },
+  },
 };
 const TAB_LABELS = { phrase: "词组搭配", variant: "特殊变形", root: "词根", derive: "派生", note: "笔记", synonym: "近义" };
 const NAV_TITLES = { home: "今日学习", review: "复习队列", listen: "随身听", listening: "听力 179", dict: "词典", words: "词书浏览", sentences: "例句库", materials: "资料", settings: "学习偏好", appearance: "外观" };
@@ -60,6 +79,7 @@ let state = loadState();
 let currentView = "home";
 let currentBookId = session?.sourceBookId || state.activeBookId || state.books[0]?.id || null;
 let searchQuery = "";
+let scopeSearchQuery = "";
 let wordFilter = "all";
 let dictQuery = "";
 let dictTab = "collins";
@@ -77,6 +97,7 @@ let materialManifest = { grammar: [] };
 let materialTab = "writing";
 let materialsMessage = "";
 let phoneticsMap = {};
+let syllablesMap = {};
 let sidebarCollapsed = localStorage.getItem("cixu-sidebar") === "1";
 let databaseAvailable = false;
 let databaseSaveTimer;
@@ -344,7 +365,12 @@ function normalizeWord(item) {
 function applyTheme() {
   const theme = state.settings.followSystem ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "deep" : "light") : state.settings.theme;
   document.body.dataset.theme = theme || "deep";
-  document.body.dataset.font = state.settings.fontStyle || "sans";
+  const chineseFont = FONT_OPTIONS.chinese[state.settings.chineseFont] || FONT_OPTIONS.chinese[DEFAULT_SETTINGS.chineseFont];
+  const englishFont = FONT_OPTIONS.english[state.settings.englishFont] || FONT_OPTIONS.english[DEFAULT_SETTINGS.englishFont];
+  let fontStyle = document.getElementById("selected-font-faces");
+  if (!fontStyle) { fontStyle = document.createElement("style"); fontStyle.id = "selected-font-faces"; document.head.append(fontStyle); }
+  const face = (locals, range, generic) => `@font-face{font-family:"VocabLearnMixed";src:${locals.map(name => `local("${name}")`).join(",")};unicode-range:${range};font-weight:100 900;font-style:normal}`;
+  fontStyle.textContent = `${face(englishFont.local, "U+0000-024F", "sans-serif")}${face(chineseFont.local, "U+2E80-2EFF,U+3000-303F,U+31C0-31EF,U+3200-32FF,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FE30-FE4F,U+FF00-FFEF", "sans-serif")}`;
   document.documentElement.style.setProperty("--global-font-size", `${state.settings.globalFontSize || 0}px`);
 }
 function applySidebar() {
@@ -392,12 +418,13 @@ function renderHome() {
   const categories = [...new Set(book.words.map(word => word.category).filter(Boolean))];
   const scopedWords = wordsForScope(book, settings.vocabularyCategory);
   const scopeOptions = categories.map(category => `<option value="${escapeHtml(category)}" ${settings.vocabularyCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("");
+  const scopeMatches = scopeSearchQuery.trim() ? book.words.map((word, index) => ({ word, index })).filter(({ word }) => `${word.word} ${word.meaning || ""}`.toLowerCase().includes(scopeSearchQuery.trim().toLowerCase())).slice(0, 8) : [];
   document.getElementById("view-home").innerHTML = `
     <div class="page-heading"><div><p class="eyebrow">${new Intl.DateTimeFormat("zh-CN", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</p><h1>今天，继续积累</h1></div><div class="date-label">本地学习记录</div></div>
     <div class="overview-grid"><div class="metric"><div class="metric-label">今日新学</div><div class="metric-value">${daily.learned}<span class="metric-unit">词</span></div><div class="metric-note">今天累计</div></div><div class="metric"><div class="metric-label">待复习</div><div class="metric-value">${allDue()}<span class="metric-unit">词</span></div><div class="metric-note">到期词条</div></div><div class="metric"><div class="metric-label">今日时长</div><div class="metric-value">${Math.round((daily.seconds || 0) / 60)}<span class="metric-unit">分</span></div><div class="metric-note">累计 ${totalMinutes()} 分钟</div></div><div class="metric"><div class="metric-label">累计掌握</div><div class="metric-value">${masteredCount()}<span class="metric-unit">词</span></div><div class="metric-note">含已标熟</div></div></div>
     <div class="section-heading"><h2>当前词书</h2><button class="quiet-link" data-view="words">管理词书 →</button></div>
      <div class="book-summary"><div class="book-cover">${escapeHtml(book.name.slice(0, 1))}</div><div class="book-summary-main"><div class="book-summary-title">${escapeHtml(book.name)}</div><div class="book-summary-sub">${book.words.length} 个词条 · ${escapeHtml(book.category || "自定义词书")}${stats.known ? ` · 已标熟 ${stats.known}` : ""}</div><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div></div><div class="summary-progress">${stats.learned + stats.known} / ${book.words.length}</div><div class="summary-actions"><button class="primary-button" data-action="${session ? "resume-session" : "start-from-scope"}" ${fresh === 0 && session?.mode !== "review" ? "disabled" : ""}>${session?.mode === "review" ? "继续复习" : "继续学习"}</button><button class="secondary-button" data-action="start-review" ${stats.due || session?.mode === "review" ? "" : "disabled"}>${session?.mode === "review" ? "继续复习" : `复习 ${stats.due || ""}`}</button><button class="secondary-button" data-view="settings">计划</button></div></div>
-     <section class="study-panel scope-panel"><div class="study-panel-header"><span>选择学习起点</span><span class="pill">仅影响新词</span></div><div class="scope-controls"><label class="scope-start-label">从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(scopedWords.length || 1).length}" value="${Math.min(settings.vocabularyStart || 1, scopedWords.length || 1)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="1" aria-label="增加起始词">+</button><button type="button" data-step="-1" aria-label="减少起始词">−</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(scopedWords[Math.min(settings.vocabularyStart || 1, scopedWords.length || 1) - 1]?.word || "超出主题范围")}</span></label><label class="scope-category-label">主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">${settings.vocabularyCategory === "all" ? "共" : "主题内共"} ${scopedWords.length} 个词条</span><button class="primary-button scope-start-button" data-action="start-from-scope" ${scopedWords.length ? "" : "disabled"}>开始学习</button></div></section>
+      <section class="study-panel scope-panel"><div class="study-panel-header"><span>选择学习起点</span><span class="pill">仅影响新词</span></div><div class="scope-controls"><label class="scope-start-label">从第几个词开始<span class="number-stepper"><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="${String(scopedWords.length || 1).length}" value="${Math.min(settings.vocabularyStart || 1, scopedWords.length || 1)}" data-scope="vocabularyStart" aria-label="从第几个词开始"><span class="stepper-buttons"><button type="button" data-step="1" aria-label="增加起始词">+</button><button type="button" data-step="-1" aria-label="减少起始词">−</button></span></span><span class="scope-word-preview" id="scope-word-preview">${escapeHtml(scopedWords[Math.min(settings.vocabularyStart || 1, scopedWords.length || 1) - 1]?.word || "超出主题范围")}</span></label><label class="scope-category-label">主题<select class="setting-select scope-select" data-scope="vocabularyCategory"><option value="all" ${settings.vocabularyCategory === "all" ? "selected" : ""}>全部主题</option>${scopeOptions}</select></label><span class="scope-count">${settings.vocabularyCategory === "all" ? "共" : "主题内共"} ${scopedWords.length} 个词条</span><button class="primary-button scope-start-button" data-action="start-from-scope" ${scopedWords.length ? "" : "disabled"}>开始学习</button></div><div class="scope-search"><input type="search" class="scope-search-input" data-scope-search placeholder="搜索单词或释义" value="${escapeHtml(scopeSearchQuery)}" aria-label="搜索学习起点词条">${scopeMatches.length ? `<div class="scope-search-results">${scopeMatches.map(({ word, index }) => { const categoryWords = wordsForScope(book, word.category || "all"); const categoryIndex = categoryWords.findIndex(item => item === word) + 1; const status = isKnown(word, book.id) ? "已标熟" : getRecord(book.id, word).introducedAt ? "学过" : "待学习"; return `<button class="scope-search-result" data-scope-word="${index}"><strong>${escapeHtml(word.word)}</strong><span>${escapeHtml(word.category || "未分类")} · 第 ${categoryIndex} 词 · ${status}</span><small>${escapeHtml(word.meaning || "")}</small></button>`; }).join("")}</div>` : scopeSearchQuery.trim() ? '<div class="scope-search-empty">没有匹配词条</div>' : ""}</div></section>
     <div class="study-layout"><section class="study-panel"><div class="study-panel-header"><span>签到日历</span><span class="pill">连续 ${streakDays()} 天</span></div>${renderCalendar()}<button class="secondary-button full-button" data-action="checkin">${state.checkins.includes(todayKey()) ? "今日已签到" : "今日签到"}</button></section><section class="study-panel"><div class="study-panel-header"><span>快捷入口</span></div><div class="quick-actions"><button class="quick-action" data-view="listen"><span class="quick-action-icon">♫</span><span><strong>随身听</strong><small>${book.words.length} 个词条</small></span></button><button class="quick-action" data-view="dict"><span class="quick-action-icon">⌕</span><span><strong>词典</strong><small>查词与例句</small></span></button><button class="quick-action" data-view="sentences"><span class="quick-action-icon">¶</span><span><strong>句库</strong><small>${state.favoriteSentences.length} 条例句</small></span></button><button class="quick-action" data-action="open-favorites"><span class="quick-action-icon">☆</span><span><strong>生词本</strong><small>${state.favoriteWords.length} 个收藏</small></span></button><button class="quick-action" id="backup-button"><span class="quick-action-icon">⇩</span><span><strong>导出备份</strong><small>词书与进度 JSON</small></span></button></div></section></div>
     <section class="recent-section"><div class="section-heading"><h2>最近学习</h2><button class="quiet-link" data-view="words">查看全部 →</button></div><div class="table-wrap"><table><thead><tr><th>单词</th><th>释义</th><th>状态</th></tr></thead><tbody>${recentRows(book)}</tbody></table></div></section>`;
 }
@@ -449,6 +476,14 @@ async function loadPhonetics() {
     if (session) renderSession(); else renderShell();
   } catch (error) { /* phonetics are optional */ }
 }
+async function loadSyllables() {
+  try {
+    const response = await fetch("./ielts/syllables.json");
+    if (!response.ok) return;
+    syllablesMap = await response.json();
+    if (session) renderSession();
+  } catch (error) { /* syllable data is optional */ }
+}
 
 function meaningOf(word) {
   const pos = String(word.partOfSpeech || "").trim();
@@ -458,6 +493,16 @@ function meaningOf(word) {
   return `${pos}${pos.endsWith(".") ? "" : "."} ${meaning}`;
 }
 const SYLLABLE_OVERRIDES = {
+  mysterious: "mys·te·ri·ous",
+  curious: "cu·ri·ous",
+  various: "var·i·ous",
+  serious: "se·ri·ous",
+  obvious: "ob·vi·ous",
+  delicious: "de·li·cious",
+  precious: "pre·cious",
+  previous: "pre·vi·ous",
+  glorious: "glo·ri·ous",
+  furious: "fu·ri·ous",
   atmosphere: "at·mos·phere",
   abundant: "a·bun·dant",
   accomplish: "ac·com·plish",
@@ -484,6 +529,7 @@ function syllableDisplay(word) {
   const base = String(word?.word || "").split(" / ")[0].toLowerCase().trim();
   if (SYLLABLE_OVERRIDES[base]) return SYLLABLE_OVERRIDES[base];
   if (word?.syllables) return String(word.syllables).replace(/[.-]/g, "·");
+  if (syllablesMap[base]) return syllablesMap[base];
   if (!/^[a-z]+$/.test(base) || base.length < 5) return base;
 
   const parts = [];
@@ -635,7 +681,7 @@ function buildChoice(word, bookId) {
       : (session.choice
         ? `<button class="answer-button known action-right" data-action="reveal">看答案</button>`
         : `<button class="answer-button again action-left" data-grade="again">不认识</button><button class="answer-button unsure action-center" data-grade="unsure">模糊</button><button class="answer-button known action-right" data-grade="known">认识</button>`);
-  const displayWord = session.choice && revealed ? syllableDisplay(word) : word.word.split(" / ")[0];
+  const displayWord = session.choice && revealed && state.settings.showSyllableMarks !== false ? syllableDisplay(word) : word.word.split(" / ")[0];
   root.innerHTML = `<div class="learn-layout"><div class="learn-toolbar"><button data-action="exit-session">← 返回</button><span>${session.mode === "review" ? "复习" : "新词学习"} · ${Math.min(session.completed + 1, total)} / ${total}${entry.streak ? ` · 连对 ${entry.streak}/${session.required}` : ""}</span><span>${total - session.completed} 剩余</span></div>
    <article class="learn-card ${revealed ? "answered" : "recalling"}"><div class="learn-progress"><span style="width:${progress}%"></span></div>
   <div class="learn-topline"><span class="word-phonetic">${phoneticOf(word) ? `<span class="accent-tag">${accentLabel()}</span>${escapeHtml(phoneticOf(word))}` : escapeHtml(word.partOfSpeech || "")}</span><div class="word-tools"><button class="word-tool" data-action="play-audio">▶ 发音</button><button class="word-tool ${state.favoriteWords.includes(recordKey(bookId, word)) ? "active" : ""}" data-action="fav-word">☆ ${state.favoriteWords.includes(recordKey(bookId, word)) ? "已收藏" : "收藏"}</button>${state.settings.spellHint ? '<button class="word-tool" data-action="spell">abc 拼写</button>' : ""}<button class="word-tool ${isKnown(word, bookId) ? "active" : ""}" data-action="known">${isKnown(word, bookId) ? "已标熟" : "标熟"}</button><button class="like-pill" data-action="like">👍 ${likeCount(word, bookId)}</button></div></div>
@@ -1148,7 +1194,7 @@ function renderSettings() {
   const toggle = (key, on) => `<button class="switch ${on ? "on" : ""}" data-toggle="${key}" role="switch" aria-checked="${on}"></button>`;
   const options = (key, values, value) => `<select class="setting-select" data-setting="${key}">${values.map(([v, label]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${label}</option>`).join("")}</select>`;
   const fontStepper = `<span class="font-stepper"><button type="button" data-font-step="-1" aria-label="减小全局字号">−</button><output>${s.globalFontSize > 0 ? `+${s.globalFontSize}` : s.globalFontSize}px</output><button type="button" data-font-step="1" aria-label="增大全局字号">+</button></span>`;
-  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("全局字号", "所有页面文字整体调整，每次改变 1px", fontStepper)}${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}</section>`;
+  document.getElementById("view-settings").innerHTML = `<div class="page-heading"><div><p class="eyebrow">学习设置</p><h1>学习偏好</h1></div><div class="date-label">仅保存在本设备</div></div><section class="settings-card">${row("全局字号", "所有页面文字整体调整，每次改变 1px", fontStepper)}${row("单词发音类型", "", `<button class="segmented" data-action="toggle-accent"><span class="${s.accent === "uk" ? "on" : ""}">英式</span><span class="${s.accent === "us" ? "on" : ""}">美式</span></button>`)}${row("自动发音", "进入卡片时自动播放", toggle("autoPronounce", s.autoPronounce))}${row("拼写", "学习、复习时提供拼写提示", toggle("spellHint", s.spellHint))}${row("学习节奏", "每组新词数量", options("groupSize", [[10, "10 词/组"], [20, "20 词/组"], [30, "30 词/组"]], s.groupSize))}${row("复习节奏", "每次复习小结数量", options("reviewChunk", [[50, "50 词/小结"], [100, "100 词/小结"], [150, "150 词/小结"]], s.reviewChunk))}${row("听音选义题型", "听到发音后选择释义", toggle("listeningQuiz", s.listeningQuiz))}${row("答题后显示音节标记", "答题后在单词中显示音节分隔点", toggle("showSyllableMarks", s.showSyllableMarks !== false))}${row("拆分助记", "学习时自动拆分单词", toggle("splitMnemonic", s.splitMnemonic))}${row("混淆项辨析", "显示选择题错误选项词义", toggle("confuseAnalyze", s.confuseAnalyze))}${row("助记顺序", "调整学习卡片内容顺序", `<button class="quiet-link" data-action="order-open">${orderOpen ? "收起" : "调整"}</button>`)}</section>${orderOpen ? renderOrderEditor() : ""}<section class="settings-card">${row("外观与沉浸场景", "主题、字体与背景", '<button class="quiet-link" data-view="appearance">前往 →</button>')}</section>`;
 }
 function renderOrderEditor() {
   return `<section class="settings-card order-card"><div class="settings-row"><div><strong>助记顺序</strong><small>从上到下排列，使用箭头调整</small></div></div>${tabOrder().map((tab, index) => `<div class="order-row"><span>${TAB_LABELS[tab]}</span><div class="order-actions"><button data-action="order-move" data-index="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>↑</button><button data-action="order-move" data-index="${index}" data-dir="1" ${index === tabOrder().length - 1 ? "disabled" : ""}>↓</button></div></div>`).join("")}</section>`;
@@ -1156,7 +1202,8 @@ function renderOrderEditor() {
 function renderAppearance() {
   const s = state.settings;
   const themes = [["light", "明亮"], ["deep", "深邃"], ["night", "极夜"]];
-  document.getElementById("view-appearance").innerHTML = `<div class="page-heading"><div><p class="eyebrow">外观</p><h1>主题与字体</h1></div><div class="date-label">跟随系统时可自动切换</div></div><div class="theme-grid">${themes.map(([value, label]) => `<button class="theme-card ${s.theme === value ? "selected" : ""}" data-theme-set="${value}"><span class="theme-preview ${value}"></span><strong>${label}</strong></button>`).join("")}</div><section class="settings-card"><div class="settings-row"><div><strong>跟随系统</strong><small>根据系统深浅色自动切换</small></div><button class="switch ${s.followSystem ? "on" : ""}" data-toggle="followSystem" role="switch" aria-checked="${s.followSystem}"></button></div><div class="settings-row"><div><strong>风格字体</strong><small>${s.fontStyle === "serif" ? "宋体风格" : "现代简约"}</small></div><button class="segmented" data-action="toggle-font"><span class="${s.fontStyle === "sans" ? "on" : ""}">现代</span><span class="${s.fontStyle === "serif" ? "on" : ""}">衬线</span></button></div></section>`;
+   const fontSelect = (key, options, value, label) => `<label class="font-select-row"><span>${label}</span><select class="setting-select font-select" data-font-family="${key}" aria-label="${label}">${Object.entries(options).map(([id, option]) => `<option value="${id}" ${value === id ? "selected" : ""}>${option.label}</option>`).join("")}</select></label>`;
+   document.getElementById("view-appearance").innerHTML = `<div class="page-heading"><div><p class="eyebrow">外观</p><h1>主题与字体</h1></div><div class="date-label">跟随系统时可自动切换</div></div><div class="theme-grid">${themes.map(([value, label]) => `<button class="theme-card ${s.theme === value ? "selected" : ""}" data-theme-set="${value}"><span class="theme-preview ${value}"></span><strong>${label}</strong></button>`).join("")}</div><section class="settings-card"><div class="settings-row"><div><strong>跟随系统</strong><small>根据系统深浅色自动切换</small></div><button class="switch ${s.followSystem ? "on" : ""}" data-toggle="followSystem" role="switch" aria-checked="${s.followSystem}"></button></div><div class="font-family-grid">${fontSelect("chineseFont", FONT_OPTIONS.chinese, s.chineseFont || DEFAULT_SETTINGS.chineseFont, "中文字体")}${fontSelect("englishFont", FONT_OPTIONS.english, s.englishFont || DEFAULT_SETTINGS.englishFont, "英文字体")}</div></section>`;
 }
 function toast(message) { const node = document.getElementById("toast"); node.textContent = message; node.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove("show"), 2600); }
 function exportBackup() {
@@ -1281,6 +1328,21 @@ document.addEventListener("click", event => {
   const nav = event.target.closest("[data-view]"); if (nav) { if (session) exitSession(); currentView = nav.dataset.view; renderShell(); return; }
   const bookButton = event.target.closest("[data-book]"); if (bookButton && !bookButton.dataset.action) { currentBookId = bookButton.dataset.book; if (session && session.sourceBookId !== currentBookId) { session = null; persist(); } else persist(); renderShell(); return; }
   const action = event.target.closest("[data-action]")?.dataset.action;
+  const scopeWord = event.target.closest("[data-scope-word]");
+  if (scopeWord) {
+    const book = currentBook();
+    const word = book?.words[Number(scopeWord.dataset.scopeWord)];
+    if (word) {
+      state.settings.vocabularyCategory = word.category || "all";
+      const scopedWords = wordsForScope(book, state.settings.vocabularyCategory);
+      state.settings.vocabularyStart = scopedWords.indexOf(word) + 1;
+      scopeSearchQuery = "";
+      persist();
+      renderHome();
+      toast(`学习起点已设为「${word.word}」`);
+    }
+    return;
+  }
   if (action === "start-new") startSession("new");
   if (action === "start-from-scope") startFromSelectedScope();
   if (action === "resume-session") startSession(session?.mode || "new");
@@ -1385,6 +1447,14 @@ document.addEventListener("click", event => {
 });
 document.getElementById("file-input").addEventListener("change", event => { const file = event.target.files[0]; if (file) importFile(file); event.target.value = ""; });
 document.addEventListener("input", event => {
+  if (event.target.matches("[data-scope-search]")) {
+    scopeSearchQuery = event.target.value;
+    const position = event.target.selectionStart;
+    renderHome();
+    const input = document.querySelector("[data-scope-search]");
+    input?.focus();
+    input?.setSelectionRange(position, position);
+  }
   if (event.target.matches('[data-scope="vocabularyStart"]')) updateScopeWordPreview(event.target);
   if (event.target.id === "word-search") { searchQuery = event.target.value; const position = event.target.selectionStart; renderWords(); const input = document.getElementById("word-search"); input.focus(); input.setSelectionRange(position, position); }
   if (event.target.id === "dict-search") { dictQuery = event.target.value; dictSelected = null; const position = event.target.selectionStart; renderDict(); const input = document.getElementById("dict-search"); input.focus(); input.setSelectionRange(position, position); }
@@ -1434,6 +1504,13 @@ document.addEventListener("change", event => {
     persist();
     toast("已保存设置");
   }
+  const fontSelect = event.target.closest("[data-font-family]");
+  if (fontSelect) {
+    state.settings[fontSelect.dataset.fontFamily] = fontSelect.value;
+    persist();
+    applyTheme();
+    return;
+  }
 });
 document.addEventListener("keydown", event => {
   if (event.target.matches('[data-scope="vocabularyStart"]') && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
@@ -1482,4 +1559,5 @@ loadDatabaseState().then(() => {
   loadListeningData();
   loadReferenceData();
   loadPhonetics();
+  loadSyllables();
 });
